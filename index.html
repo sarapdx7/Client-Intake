@@ -17,6 +17,9 @@
     ::-webkit-scrollbar-track { background: #0f0f14; }
     ::-webkit-scrollbar-thumb { background: #2a2a38; border-radius: 3px; }
     select option { background: #1e1e28; color: #e8e6e0; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
   </style>
 </head>
 <body>
@@ -295,9 +298,9 @@ const SECTIONS = [
       { id: "phone", label: "Phone", type: "tel" },
       { id: "address", label: "Address", type: "text" },
       { id: "employmentStatus", label: "Employment Status", type: "select", options: ["Employed", "Self-Employed", "Retired", "Unemployed", "Part-Time"] },
+      { id: "maritalStatus", label: "Marital Status", type: "select", options: ["Single", "Married", "Domestic Partner", "Divorced", "Widowed"] },
       { id: "spousePanel", label: "Spouse / Partner", type: "spousepanel" },
       { id: "dependents", label: "Dependents", type: "dependentlist" },
-      { id: "maritalStatus", label: "Marital Status", type: "select", options: ["Single", "Married", "Domestic Partner", "Divorced", "Widowed"] },
     ],
   },
   {
@@ -1749,9 +1752,19 @@ function App() {
             {section.fields.filter(field => !field.showIfSpouse || (formData.spousePanel && formData.spousePanel.name)).map((field) => (
               <div key={field.id}>
                 {field.type !== "mortgagebreakdown" && (
-                  <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>
-                    {field.label}
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                    <label style={{ fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase" }}>
+                      {field.label}
+                    </label>
+                    {field.zillowLink && (
+                      <a href="https://www.zillow.com" target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: "11px", color: COLORS.accent, textDecoration: "none", letterSpacing: "0.05em", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                        onMouseOver={(e) => e.currentTarget.style.textDecoration = "underline"}
+                        onMouseOut={(e) => e.currentTarget.style.textDecoration = "none"}>
+                        🏠 Look up on Zillow ↗
+                      </a>
+                    )}
+                  </div>
                 )}
                 {field.type === "multibrokerageaccount" ? (
                   <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={BROKERAGE_TYPES} addLabel="Add Brokerage Account" uploadPrefix="file_brokerage" />
