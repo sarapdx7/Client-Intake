@@ -294,10 +294,10 @@ const SECTIONS = [
       { id: "email", label: "Email", type: "email" },
       { id: "phone", label: "Phone", type: "tel" },
       { id: "address", label: "Address", type: "text" },
-      { id: "maritalStatus", label: "Marital Status", type: "select", options: ["Single", "Married", "Domestic Partner", "Divorced", "Widowed"] },
+      { id: "employmentStatus", label: "Employment Status", type: "select", options: ["Employed", "Self-Employed", "Retired", "Unemployed", "Part-Time"] },
       { id: "spousePanel", label: "Spouse / Partner", type: "spousepanel" },
       { id: "dependents", label: "Dependents", type: "dependentlist" },
-      { id: "employmentStatus", label: "Employment Status", type: "select", options: ["Employed", "Self-Employed", "Retired", "Unemployed", "Part-Time"] },
+      { id: "maritalStatus", label: "Marital Status", type: "select", options: ["Single", "Married", "Domestic Partner", "Divorced", "Widowed"] },
     ],
   },
   {
@@ -327,7 +327,7 @@ const SECTIONS = [
       { id: "bankAccounts", label: "Checking & Savings Accounts", type: "multibankaccount" },
       { id: "brokerageAccounts", label: "Taxable Brokerage Accounts", type: "multibrokerageaccount" },
       { id: "retirementAccounts", label: "Retirement Accounts", type: "multiretirementaccount" },
-      { id: "primaryHomeValue", label: "Primary Home Value ($)", type: "number" },
+      { id: "primaryHomeValue", label: "Primary Home Value ($)", type: "number", zillowLink: true },
       { id: "otherRealEstate", label: "Other Real Estate Value ($)", type: "number" },
       { id: "businessValue", label: "Business Ownership Value ($)", type: "number" },
       { id: "otherAssets", label: "Other Assets", type: "multiasset" },
@@ -971,7 +971,7 @@ function MultiAssetField({ value, onChange }) {
                   style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
               </div>
             ) : (
-              <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "5px 10px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 14px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
                 <span>⊕</span> Attach statement
                 <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
               </label>
@@ -1175,7 +1175,7 @@ function MultiAssetField({ value, onChange }) {
                         style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
                     </div>
                   ) : (
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "5px 10px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 14px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
                       <span>⊕</span> Attach statement
                       <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
                     </label>
@@ -1282,7 +1282,7 @@ function MultiAssetField({ value, onChange }) {
                         style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
                     </div>
                   ) : (
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "5px 10px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 14px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
                       <span>⊕</span> Attach statement
                       <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
                     </label>
