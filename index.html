@@ -80,13 +80,24 @@
       const rows = [["Section", "Field", "Value"]];
       SECTIONS.forEach((section) => {
         section.fields.forEach((field) => {
-          if (["fileonly","docupload","documentvault","multistudentloan","multibankaccount","dependentlist","spousepanel","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
+          if (["fileonly","docupload","documentvault","multibrokerageaccount","multiretirementaccount","multistudentloan","multibankaccount","dependentlist","spousepanel","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
             if (field.type === "multiasset") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Asset ${i+1} - Name`,r.name||""]); rows.push([section.title,`Other Asset ${i+1} - Value`,r.amount||""]); }); }
             else if (field.type === "multiincome") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Income ${i+1} - Source`,r.source||""]); rows.push([section.title,`Other Income ${i+1} - Amount`,r.amount||""]); }); }
             else if (field.type === "multiloan") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Auto Loan ${i+1} - Lender`,r.name||""]); rows.push([section.title,`Auto Loan ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Auto Loan ${i+1} - APR`,r.rate||""]); rows.push([section.title,`Auto Loan ${i+1} - Payment`,r.payment||""]); }); }
             else if (field.type === "multicredit") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Card ${i+1} - Name`,r.name||""]); rows.push([section.title,`Card ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Card ${i+1} - Limit`,r.limit||""]); rows.push([section.title,`Card ${i+1} - APR`,r.apr||""]); }); }
             else if (field.type === "multidebt") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Debt ${i+1} - Description`,r.name||""]); rows.push([section.title,`Debt ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Debt ${i+1} - Rate`,r.rate||""]); rows.push([section.title,`Debt ${i+1} - Payment`,r.payment||""]); }); }
             else if (field.type === "expensegroup") { const a = formData[field.id] || field.defaultRows || []; a.forEach(r => { if (r.category||r.amount) rows.push([section.title+" - "+field.label, r.category||"", r.amount||""]); }); }
+            else if (field.type === "multibrokerageaccount" || field.type === "multiretirementaccount") {
+              const accts = formData[field.id];
+              const label = field.type === "multibrokerageaccount" ? "Brokerage" : "Retirement";
+              if (Array.isArray(accts) && accts.length > 0) {
+                accts.forEach((a, i) => {
+                  rows.push([section.title, `${label} Account ${i+1} - Institution`, a.institution||""]);
+                  rows.push([section.title, `${label} Account ${i+1} - Type`, a.type||""]);
+                  rows.push([section.title, `${label} Account ${i+1} - Balance ($)`, a.balance||""]);
+                });
+              }
+            }
             else if (field.type === "multistudentloan") {
               const loans = formData[field.id];
               if (Array.isArray(loans) && loans.length > 0) {
@@ -106,6 +117,8 @@
                   rows.push([section.title, `Bank Account ${i+1} - Institution`, a.institution||""]);
                   rows.push([section.title, `Bank Account ${i+1} - Type`, a.type||""]);
                   rows.push([section.title, `Bank Account ${i+1} - Balance ($)`, a.balance||""]);
+                  rows.push([section.title, `Bank Account ${i+1} - Routing #`, a.routing||""]);
+                  rows.push([section.title, `Bank Account ${i+1} - Account #`, a.accountNumber||""]);
                 });
               }
             }
@@ -166,7 +179,7 @@
         { uploadId: "file_mortgage", label: "Mortgage Statement", triggerField: "mortgageBalance" },
         { uploadId: "file_heloc", label: "HELOC Statement", triggerField: "heloc" },
         { uploadId: "file_paystub", label: "Pay Stub", triggerField: "grossIncome" },
-        { uploadId: "file_brokerage", label: "Brokerage Statement", triggerField: "brokerage" },
+        
         { uploadId: "file_lifeins", label: "Life Insurance Policy", triggerField: "lifeDeathBenefit" },
         { uploadId: "file_estate", label: "Estate Documents (Will/Trust/POA)", triggerField: "hasWill" },
         { uploadId: "file_taxreturn", label: "Last Year Tax Return", triggerField: null },
@@ -311,14 +324,8 @@ const SECTIONS = [
     icon: "◇",
     fields: [
       { id: "bankAccounts", label: "Checking & Savings Accounts", type: "multibankaccount" },
-      { id: "brokerage", label: "Taxable Brokerage Accounts ($)", type: "number", uploadHint: "Brokerage statement", uploadId: "file_brokerage" },
-      { id: "traditional401k", label: "Traditional 401(k) / 403(b) ($)", type: "number" },
-      { id: "roth401k", label: "Roth 401(k) ($)", type: "number" },
-      { id: "traditionalIRA", label: "Traditional IRA ($)", type: "number" },
-      { id: "rothIRA", label: "Roth IRA ($)", type: "number" },
-      { id: "pensionValue", label: "Pension Estimated Value ($)", type: "number" },
-      { id: "hsa", label: "HSA Balance ($)", type: "number" },
-      { id: "529", label: "529 / Education Accounts ($)", type: "number" },
+      { id: "brokerageAccounts", label: "Taxable Brokerage Accounts", type: "multibrokerageaccount" },
+      { id: "retirementAccounts", label: "Retirement Accounts", type: "multiretirementaccount" },
       { id: "primaryHomeValue", label: "Primary Home Value ($)", type: "number" },
       { id: "otherRealEstate", label: "Other Real Estate Value ($)", type: "number" },
       { id: "businessValue", label: "Business Ownership Value ($)", type: "number" },
@@ -918,6 +925,96 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
+    function MultiAccountField({ value, onChange, uploadedFiles, setUploadedFiles, accountTypes, addLabel, uploadPrefix }) {
+      const makeRow = () => ({ institution: "", type: accountTypes[0], balance: "", uploadId: uploadPrefix + "_" + Date.now() });
+      const rows = value && Array.isArray(value) ? value : [makeRow()];
+
+      React.useEffect(() => {
+        if (!value || value.length === 0) onChange([makeRow()]);
+      }, []);
+
+      const addRow = () => onChange([...rows, makeRow()]);
+      const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+      const removeRow = (i) => {
+        if (rows.length === 1) return;
+        const row = rows[i];
+        if (row.uploadId) setUploadedFiles(prev => { const u = {...prev}; delete u[row.uploadId]; return u; });
+        onChange(rows.filter((_, idx) => idx !== i));
+      };
+
+      const handleFile = (uploadId, e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => setUploadedFiles(prev => ({ ...prev, [uploadId]: [{ name: file.name, data: ev.target.result, type: file.type, uploadId }] }));
+        reader.readAsDataURL(file);
+        e.target.value = "";
+      };
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      return (
+        <div>
+          {rows.map((row, i) => {
+            const attached = uploadedFiles[row.uploadId] || [];
+            return (
+              <div key={i} style={{ padding: "16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Institution / Custodian</label>
+                    <input type="text" placeholder="e.g. Fidelity" value={row.institution} onChange={(e) => updateRow(i, "institution", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Account Type</label>
+                    <select value={row.type} onChange={(e) => updateRow(i, "type", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                      {accountTypes.map(t => <option key={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Balance ($)</label>
+                    <input type="number" placeholder="0" value={row.balance} onChange={(e) => updateRow(i, "balance", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  {attached.length > 0 ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span>📄</span>
+                      <span style={{ fontSize: "12px", color: COLORS.complete }}>{attached[0].name}</span>
+                      <button onClick={() => setUploadedFiles(prev => ({ ...prev, [row.uploadId]: [] }))}
+                        style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
+                    </div>
+                  ) : (
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "5px 10px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                      <span>⊕</span> Attach statement
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
+                    </label>
+                  )}
+                  {rows.length > 1 && (
+                    <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> {addLabel}
+          </button>
+        </div>
+      );
+    }
+
+    const BROKERAGE_TYPES = ["Taxable Brokerage", "Joint Brokerage", "Custodial (UTMA/UGMA)", "Trust Account", "Other"];
+    const RETIREMENT_TYPES = ["Traditional 401(k)", "Roth 401(k)", "403(b)", "Traditional IRA", "Roth IRA", "SEP IRA", "SIMPLE IRA", "Pension", "HSA", "529 / Education", "Deferred Compensation", "Other"];
+
     function MultiStudentLoanField({ value, onChange, uploadedFiles, setUploadedFiles }) {
       const rows = value && Array.isArray(value) ? value : [];
       const addRow = () => onChange([...rows, { servicer: "", type: "", balance: "", rate: "", payment: "", uploadId: "file_sl_" + Date.now() }]);
@@ -1015,10 +1112,18 @@ function MultiAssetField({ value, onChange }) {
     }
 
     function MultiBankAccountField({ value, onChange, uploadedFiles, setUploadedFiles }) {
-      const rows = value && Array.isArray(value) ? value : [];
-      const addRow = () => onChange([...rows, { institution: "", type: "Checking", balance: "", uploadId: "file_bank_" + Date.now() }]);
+      const defaultRow = { institution: "", type: "Checking", balance: "", routing: "", accountNumber: "", uploadId: "file_bank_" + Date.now() };
+      const rows = value && Array.isArray(value) ? value : [{ ...defaultRow }];
+
+      // Initialize with one default row if empty
+      React.useEffect(() => {
+        if (!value || value.length === 0) onChange([{ ...defaultRow, uploadId: "file_bank_" + Date.now() }]);
+      }, []);
+
+      const addRow = () => onChange([...rows, { institution: "", type: "Checking", balance: "", routing: "", accountNumber: "", uploadId: "file_bank_" + Date.now() }]);
       const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
       const removeRow = (i) => {
+        if (rows.length === 1) return; // keep at least one
         const row = rows[i];
         if (row.uploadId) setUploadedFiles(prev => { const u = {...prev}; delete u[row.uploadId]; return u; });
         onChange(rows.filter((_, idx) => idx !== i));
@@ -1049,7 +1154,7 @@ function MultiAssetField({ value, onChange }) {
           {rows.map((row, i) => {
             const attached = (uploadedFiles[row.uploadId] || []);
             return (
-              <div key={i} style={{ padding: "14px 16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+              <div key={i} style={{ padding: "16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
                   <div>
                     <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Institution</label>
@@ -1073,6 +1178,18 @@ function MultiAssetField({ value, onChange }) {
                       onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
                   </div>
                 </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Routing Number</label>
+                    <input type="text" placeholder="9 digits" value={row.routing} onChange={(e) => updateRow(i, "routing", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Account Number</label>
+                    <input type="text" placeholder="Account number" value={row.accountNumber} onChange={(e) => updateRow(i, "accountNumber", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   {attached.length > 0 ? (
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -1087,7 +1204,9 @@ function MultiAssetField({ value, onChange }) {
                       <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
                     </label>
                   )}
-                  <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+                  {rows.length > 1 && (
+                    <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+                  )}
                 </div>
               </div>
             );
@@ -1201,7 +1320,7 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
-    function DocumentVaultField({ uploadedFiles, setUploadedFiles }) {
+    function DocumentVaultField({ uploadedFiles, setUploadedFiles, formData }) {
       // Map field-level upload keys to friendly labels
       const FIELD_UPLOAD_LABELS = {
         file_mortgage: "Mortgage Statement",
@@ -1221,6 +1340,10 @@ function MultiAssetField({ value, onChange }) {
       bankAccounts.forEach(a => { if (a.uploadId) bankUploadLabels[a.uploadId] = `Bank Statement — ${a.institution || a.type || "Account"}`; });
       const studentLoans = (formData && formData.studentLoans) || [];
       studentLoans.forEach(l => { if (l.uploadId) bankUploadLabels[l.uploadId] = `Student Loan Statement — ${l.servicer || "Loan"}`; });
+      const brokerageAccounts = (formData && formData.brokerageAccounts) || [];
+      brokerageAccounts.forEach(a => { if (a.uploadId) bankUploadLabels[a.uploadId] = `Brokerage Statement — ${a.institution || a.type || "Account"}`; });
+      const retirementAccounts = (formData && formData.retirementAccounts) || [];
+      retirementAccounts.forEach(a => { if (a.uploadId) bankUploadLabels[a.uploadId] = `Retirement Statement — ${a.institution || a.type || "Account"}`; });
       const allUploadLabels = { ...FIELD_UPLOAD_LABELS, ...bankUploadLabels };
 
       // Collect all field-level uploads into a flat list
@@ -1547,7 +1670,11 @@ function App() {
                     {field.label}
                   </label>
                 )}
-                {field.type === "multistudentloan" ? (
+                {field.type === "multibrokerageaccount" ? (
+                  <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={BROKERAGE_TYPES} addLabel="Add Brokerage Account" uploadPrefix="file_brokerage" />
+                ) : field.type === "multiretirementaccount" ? (
+                  <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={RETIREMENT_TYPES} addLabel="Add Retirement Account" uploadPrefix="file_retirement" />
+                ) : field.type === "multistudentloan" ? (
                   <MultiStudentLoanField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
                 ) : field.type === "multibankaccount" ? (
                   <MultiBankAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
@@ -1556,7 +1683,7 @@ function App() {
                 ) : field.type === "spousepanel" ? (
                   <SpousePanelField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
                 ) : field.type === "documentvault" ? (
-                  <DocumentVaultField uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                  <DocumentVaultField uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} formData={formData} />
                 ) : field.type === "fileonly" ? (
                   <FileUploadButton uploadId={field.uploadId} hint={field.uploadHint} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
                 ) : field.type === "multiasset" ? (
