@@ -25,7 +25,122 @@
     const { useState } = React;
 
 
+    const DB_NAME = "FinancialIntake";
+    const DB_VERSION = 1;
+    const STORE_NAME = "session";
+    const SESSION_KEY = "current";
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => e.target.result.createObjectStore(STORE_NAME);
+        req.onsuccess = (e) => resolve(e.target.result);
+        req.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    async function saveSessionToDB(data) {
+      try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.objectStore(STORE_NAME).put({ ...data, savedAt: new Date().toISOString() }, SESSION_KEY);
+        db.close();
+      } catch(e) { console.warn("Save failed", e); }
+    }
+
+    async function loadSessionFromDB() {
+      try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const result = await new Promise((res, rej) => {
+          const req = tx.objectStore(STORE_NAME).get(SESSION_KEY);
+          req.onsuccess = () => res(req.result);
+          req.onerror = rej;
+        });
+        db.close();
+        return result || null;
+      } catch(e) { return null; }
+    }
+
+    async function clearSessionFromDB() {
+      try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.objectStore(STORE_NAME).delete(SESSION_KEY);
+        db.close();
+      } catch(e) {}
+    }
+
+
+    async function exportZip(formData, uploadedFiles) {
+      const zip = new JSZip();
+      const clientName = [formData.firstName, formData.lastName].filter(Boolean).join("_") || "client";
+
+      // Build CSV
+      const rows = [["Section", "Field", "Value"]];
+      SECTIONS.forEach((section) => {
+        section.fields.forEach((field) => {
+          if (["fileonly","docupload","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
+            if (field.type === "multiasset") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Asset ${i+1} - Name`,r.name||""]); rows.push([section.title,`Other Asset ${i+1} - Value`,r.amount||""]); }); }
+            else if (field.type === "multiincome") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Income ${i+1} - Source`,r.source||""]); rows.push([section.title,`Other Income ${i+1} - Amount`,r.amount||""]); }); }
+            else if (field.type === "multiloan") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Auto Loan ${i+1} - Lender`,r.name||""]); rows.push([section.title,`Auto Loan ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Auto Loan ${i+1} - APR`,r.rate||""]); rows.push([section.title,`Auto Loan ${i+1} - Payment`,r.payment||""]); }); }
+            else if (field.type === "multicredit") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Card ${i+1} - Name`,r.name||""]); rows.push([section.title,`Card ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Card ${i+1} - Limit`,r.limit||""]); rows.push([section.title,`Card ${i+1} - APR`,r.apr||""]); }); }
+            else if (field.type === "multidebt") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Debt ${i+1} - Description`,r.name||""]); rows.push([section.title,`Debt ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Debt ${i+1} - Rate`,r.rate||""]); rows.push([section.title,`Debt ${i+1} - Payment`,r.payment||""]); }); }
+            else if (field.type === "expensegroup") { const a = formData[field.id] || field.defaultRows || []; a.forEach(r => { if (r.category||r.amount) rows.push([section.title+" - "+field.label, r.category||"", r.amount||""]); }); }
+            else if (field.type === "mortgagebreakdown") { const bd = formData[field.id]||{}; Object.entries({principal:"P&I",propertyTax:"Property Tax",homeInsurance:"Home Insurance",pmi:"PMI",hoaFee:"HOA",floodInsurance:"Flood Insurance",melloRoos:"Mello-Roos",other:"Other"}).forEach(([k,l]) => { if (bd[k]) rows.push([section.title, "Mortgage - "+l, bd[k]]); }); }
+          } else {
+            const val = formData[field.id] || "";
+            rows.push([section.title, field.label, String(val)]);
+          }
+        });
+      });
+      const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+      zip.file(`${clientName}_intake.csv`, csv);
+      zip.file(`${clientName}_session.json`, JSON.stringify({ version:1, savedAt: new Date().toISOString(), formData }, null, 2));
+
+      const folderMap = { file_mortgage:"Mortgage", file_studentloan:"Student_Loans", file_paystub:"Pay_Stubs", file_taxreturn:"Tax_Returns", file_lifeins:"Life_Insurance", file_estate:"Estate_Docs", file_bank:"Bank_Statements", file_brokerage:"Brokerage_Statements", doc_catchall:"Supporting_Documents" };
+      Object.entries(uploadedFiles).forEach(([id, files]) => {
+        const folder = folderMap[id] || "Documents";
+        files.forEach(f => { const b64 = f.data.split(",")[1]; zip.folder(folder).file(f.name, b64, { base64: true }); });
+      });
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url;
+      a.download = `${clientName}_financial_intake.zip`; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportSession(formData, completed) {
+      const session = { version: 1, savedAt: new Date().toISOString(), formData, completed: Array.from(completed) };
+      const blob = new Blob([JSON.stringify(session, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url;
+      const name = [formData.firstName, formData.lastName].filter(Boolean).join("_") || "client";
+      a.download = `${name}_intake_session.json`; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importSession(file, onSuccess) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const s = JSON.parse(e.target.result);
+          if (s.formData) onSuccess(s.formData, new Set(s.completed || []));
+          else alert("Invalid session file.");
+        } catch { alert("Could not read session file."); }
+      };
+      reader.readAsText(file);
+    }
+
+
 const SECTIONS = [
+  {
+    id: "documents", title: "Documents", icon: "◫",
+    fields: [
+      { id: "docCatchAll", label: "Upload Supporting Documents", type: "docupload", description: "Tax returns, pay stubs, investment statements, insurance policies, estate docs, or any other supporting files." },
+    ],
+  },
   {
     id: "goals",
     title: "Financial Goals",
@@ -41,14 +156,6 @@ const SECTIONS = [
       { id: "riskTolerance", label: "Investment Risk Tolerance", type: "select", options: ["Conservative", "Moderately Conservative", "Moderate", "Moderately Aggressive", "Aggressive"] },
       { id: "biggestConcern", label: "Biggest Financial Concern", type: "textarea" },
       { id: "plannerNotes", label: "Additional Notes for Planner", type: "textarea" },
-    ],
-  },
-  {
-    id: "documents",
-    title: "Documents",
-    icon: "◫",
-    fields: [
-      { id: "docCatchAll", label: "Upload Supporting Documents", type: "docupload", description: "Tax returns, pay stubs, investment statements, insurance policies, estate docs, or any other supporting files." },
     ],
   },
   {
@@ -175,7 +282,7 @@ const SECTIONS = [
       { id: "healthInsurance", label: "Health Insurance Type", type: "select", options: ["Employer-Sponsored", "Marketplace/ACA", "Medicare", "Medicaid", "COBRA", "None"] },
       { id: "healthDeductible", label: "Health Deductible ($)", type: "number" },
       { id: "lifeInsuranceType", label: "Life Insurance Type", type: "select", options: ["None", "Term", "Whole Life", "Universal Life", "Both Term & Permanent"] },
-      { id: "lifeDeathBenefit", label: "Life Insurance Death Benefit ($)", type: "number", uploadHint: "Insurance policy document", uploadId: "file_lifeins" },
+      { id: "lifeDeathBenefit", label: "Life Insurance Death Benefit ($)", type: "number", uploadHint: "Insurance policy doc", uploadId: "file_lifeins" },
       { id: "spouseLifeInsurance", label: "Spouse/Partner Life Insurance ($)", type: "number" },
       { id: "disabilityInsurance", label: "Disability Insurance?", type: "select", options: ["None", "Short-Term Only", "Long-Term Only", "Both", "Own-Occupation LTD"] },
       { id: "disabilityBenefit", label: "Disability Monthly Benefit ($)", type: "number" },
@@ -197,7 +304,7 @@ const SECTIONS = [
       { id: "beneficiariesReviewed", label: "Beneficiaries Reviewed Recently?", type: "select", options: ["Yes", "No - Need Review"] },
       { id: "estateValue", label: "Estimated Total Estate Value ($)", type: "number" },
       { id: "charitableIntent", label: "Charitable Giving Goals?", type: "select", options: ["None", "Annual Giving", "Donor-Advised Fund", "Charitable Bequest", "Foundation"] },
-      { id: "estateDocs", label: "Estate Documents", type: "fileonly", uploadHint: "Upload will, trust, POA, or directives", uploadId: "file_estate" },
+      { id: "estateDocs", label: "Estate Documents", type: "fileonly", uploadHint: "Upload will, trust, POA, directives", uploadId: "file_estate" },
       { id: "estateNotes", label: "Estate Planning Notes", type: "textarea", placeholder: "Special circumstances, blended family, business succession..." },
     ],
   },
@@ -215,7 +322,7 @@ const SECTIONS = [
       { id: "taxLossHarvesting", label: "Currently Tax-Loss Harvesting?", type: "select", options: ["No", "Yes", "Unsure what this is"] },
       { id: "deferredComp", label: "Deferred Compensation Plan?", type: "select", options: ["No", "Yes"] },
       { id: "deferredCompBalance", label: "Deferred Comp Balance ($)", type: "number" },
-      { id: "lastYearReturn", label: "Last Year Tax Return", type: "fileonly", uploadHint: "Upload tax return (PDF)", uploadId: "file_taxreturn" },
+      { id: "taxReturn", label: "Tax Return", type: "fileonly", uploadHint: "Upload last year's tax return (PDF)", uploadId: "file_taxreturn" },
       { id: "taxNotes", label: "Tax Notes", type: "textarea", placeholder: "Recent large events, stock concentration, rental activity..." },
     ],
   },
@@ -657,7 +764,84 @@ function MultiAssetField({ value, onChange }) {
   );
 }
 
-function SectionNav({ sections, current, completed, onSelect }) {
+
+    function FileUploadButton({ uploadId, hint, uploadedFiles, setUploadedFiles }) {
+      const files = uploadedFiles[uploadId] || [];
+      const handleFiles = (e) => {
+        const promises = Array.from(e.target.files).map(f => new Promise(resolve => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve({ name: f.name, data: ev.target.result, type: f.type, uploadId });
+          reader.readAsDataURL(f);
+        }));
+        Promise.all(promises).then(loaded => {
+          setUploadedFiles(prev => ({ ...prev, [uploadId]: [...(prev[uploadId] || []), ...loaded] }));
+        });
+        e.target.value = "";
+      };
+      const removeFile = (i) => setUploadedFiles(prev => {
+        const updated = [...(prev[uploadId] || [])]; updated.splice(i, 1);
+        return { ...prev, [uploadId]: updated };
+      });
+      return (
+        <div style={{ marginTop: "8px" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 12px", background: "transparent", border: `1px dashed ${files.length > 0 ? COLORS.complete : COLORS.border}`, borderRadius: "6px", color: files.length > 0 ? COLORS.complete : COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+            <span>{files.length > 0 ? "✓" : "⊕"}</span>
+            {files.length > 0 ? `${files.length} file${files.length > 1 ? "s" : ""} attached` : (hint || "Attach file")}
+            <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} onChange={handleFiles} />
+          </label>
+          {files.length > 0 && (
+            <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {files.map((f, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "4px 10px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "20px", fontSize: "12px", color: COLORS.text }}>
+                  <span>📄</span>
+                  <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                  <button onClick={() => removeFile(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0, lineHeight: 1 }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function DocUploadField({ uploadedFiles, setUploadedFiles, description }) {
+      const uploadId = "doc_catchall";
+      const files = uploadedFiles[uploadId] || [];
+      const handleFiles = (e) => {
+        const promises = Array.from(e.target.files).map(f => new Promise(resolve => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve({ name: f.name, data: ev.target.result, type: f.type, uploadId });
+          reader.readAsDataURL(f);
+        }));
+        Promise.all(promises).then(loaded => {
+          setUploadedFiles(prev => ({ ...prev, [uploadId]: [...(prev[uploadId] || []), ...loaded] }));
+        });
+        e.target.value = "";
+      };
+      const removeFile = (i) => setUploadedFiles(prev => {
+        const updated = [...(prev[uploadId] || [])]; updated.splice(i, 1);
+        return { ...prev, [uploadId]: updated };
+      });
+      return (
+        <div>
+          {description && <p style={{ fontSize: "13px", color: COLORS.muted, marginBottom: "16px", lineHeight: 1.6 }}>{description}</p>}
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", padding: "28px", background: "#1e1e28", border: `2px dashed ${COLORS.border}`, borderRadius: "10px", color: COLORS.muted, cursor: "pointer", fontSize: "14px", fontFamily: "inherit", marginBottom: "16px" }}>
+            <span style={{ fontSize: "24px" }}>⊕</span>
+            <span>Click to upload files<br /><span style={{ fontSize: "11px", opacity: 0.6 }}>PDF, JPG, PNG, Word, Excel</span></span>
+            <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} onChange={handleFiles} />
+          </label>
+          {files.map((f, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "8px" }}>
+              <span>📄</span>
+              <span style={{ flex: 1, fontSize: "13px", color: COLORS.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+              <button onClick={() => removeFile(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: 0 }}>×</button>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function SectionNav({ sections, current, completed, onSelect }) {
   return (
     <div style={{ display: "flex", overflowX: "auto", gap: "0", borderBottom: `1px solid ${COLORS.border}`, paddingBottom: "0" }}>
       {sections.map((s, i) => {
@@ -694,6 +878,41 @@ function SectionNav({ sections, current, completed, onSelect }) {
       })}
     </div>
   );
+}
+
+
+function exportSession(formData, completed) {
+  const session = {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    formData,
+    completed: Array.from(completed),
+  };
+  const blob = new Blob([JSON.stringify(session, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const name = [formData.firstName, formData.lastName].filter(Boolean).join("_") || "client";
+  a.download = `${name}_intake_session.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importSession(file, onSuccess) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const session = JSON.parse(e.target.result);
+      if (session.formData) {
+        onSuccess(session.formData, new Set(session.completed || []));
+      } else {
+        alert("Invalid session file.");
+      }
+    } catch {
+      alert("Could not read session file.");
+    }
+  };
+  reader.readAsText(file);
 }
 
 function exportToCSV(data) {
@@ -781,11 +1000,9 @@ function App() {
   const [formData, setFormData] = useState({});
   const [completed, setCompleted] = useState(new Set());
   const [submitted, setSubmitted] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState({}); // { uploadId: [{ name, data, type }] }
-  const [resumePrompt, setResumePrompt] = useState(null); // { formData, completed, uploadedFiles, currentSection, savedAt, clientName }
+  const [uploadedFiles, setUploadedFiles] = useState({});
+  const [resumePrompt, setResumePrompt] = useState(null);
 
-
-  // Check for saved session on mount
   React.useEffect(() => {
     loadSessionFromDB().then(saved => {
       if (saved && saved.formData && Object.keys(saved.formData).length > 0) {
@@ -802,13 +1019,12 @@ function App() {
   const handleNext = () => {
     const newCompleted = new Set([...completed, currentSection]);
     setCompleted(newCompleted);
-    const nextSection = currentSection < SECTIONS.length - 1 ? currentSection + 1 : currentSection;
     if (currentSection < SECTIONS.length - 1) {
-      setCurrentSection(nextSection);
+      setCurrentSection(currentSection + 1);
+      saveSessionToDB({ formData, completed: Array.from(newCompleted), uploadedFiles, currentSection: currentSection + 1 });
     } else {
       setSubmitted(true);
     }
-    saveSessionToDB(formData, newCompleted, uploadedFiles, nextSection);
   };
 
   const handleBack = () => {
@@ -834,18 +1050,7 @@ function App() {
               onClick={() => exportZip(formData, uploadedFiles)}
               style={{ padding: "14px 28px", background: COLORS.accent, color: "#0f0f14", border: "none", borderRadius: "8px", fontSize: "15px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}
             >
-              Export CSV
-            </button>
-            <button
-              onClick={() => { if (window.confirm("Clear saved session? This cannot be undone.")) { clearSessionFromDB(); setFormData({}); setCompleted(new Set()); setUploadedFiles({}); setCurrentSection(0); } }}
-              style={{ padding: "7px 14px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}
-              title="Clear saved session"
-            >✕ Clear</button>
-            <button
-              onClick={() => exportSession(formData, completed)}
-              style={{ padding: "14px 28px", background: "transparent", color: COLORS.accentLight, border: `1px solid ${COLORS.accent}44`, borderRadius: "8px", fontSize: "15px", cursor: "pointer", fontFamily: "inherit" }}
-            >
-              ↓ Save Session
+              ⬇ Export ZIP
             </button>
             <button
               onClick={() => { setSubmitted(false); setCurrentSection(0); }}
@@ -867,40 +1072,7 @@ function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: COLORS.bg, fontFamily: "'Cormorant Garamond', Georgia, serif", color: COLORS.text }}>
-
-      {resumePrompt && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Cormorant Garamond', Georgia, serif" }}>
-          <div style={{ background: "#16161d", border: `1px solid ${COLORS.border}`, borderRadius: "12px", padding: "40px", maxWidth: "440px", width: "90%", textAlign: "center" }}>
-            <div style={{ fontSize: "36px", marginBottom: "16px" }}>◈</div>
-            <h2 style={{ fontSize: "24px", fontWeight: 300, color: COLORS.accentLight, marginBottom: "8px" }}>Resume Session?</h2>
-            <p style={{ color: COLORS.muted, fontSize: "14px", marginBottom: "6px" }}>
-              A saved session was found for
-            </p>
-            <p style={{ color: COLORS.text, fontSize: "18px", marginBottom: "6px", fontWeight: 600 }}>
-              {resumePrompt.clientName}
-            </p>
-            <p style={{ color: COLORS.muted, fontSize: "12px", marginBottom: "32px", letterSpacing: "0.05em" }}>
-              Last saved: {new Date(resumePrompt.savedAt).toLocaleString()}
-            </p>
-            <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
-              <button
-                onClick={() => {
-                  setFormData(resumePrompt.formData);
-                  setCompleted(new Set(resumePrompt.completed || []));
-                  setUploadedFiles(resumePrompt.uploadedFiles || {});
-                  setCurrentSection(resumePrompt.currentSection || 0);
-                  setResumePrompt(null);
-                }}
-                style={{ padding: "12px 28px", background: COLORS.accent, color: "#0f0f14", border: "none", borderRadius: "8px", fontSize: "15px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
-              >Resume</button>
-              <button
-                onClick={() => { clearSessionFromDB(); setResumePrompt(null); }}
-                style={{ padding: "12px 24px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "8px", fontSize: "15px", cursor: "pointer", fontFamily: "inherit" }}
-              >Start Fresh</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {resumeOverlay}
       {/* Header */}
       <div style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "20px 40px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
@@ -910,17 +1082,10 @@ function App() {
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <div style={{ display: "flex", gap: "8px" }}>
             <button
-              onClick={() => { if (window.confirm("Clear saved session? This cannot be undone.")) { clearSessionFromDB(); setFormData({}); setCompleted(new Set()); setUploadedFiles({}); setCurrentSection(0); } }}
-              style={{ padding: "7px 14px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}
-              title="Clear saved session"
-            >✕ Clear</button>
-            <button
               onClick={() => exportSession(formData, completed)}
               style={{ padding: "7px 14px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}
-              title="Save session as JSON"
             >↓ Save</button>
-            <label style={{ padding: "7px 14px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}
-              title="Load a previously saved session">
+            <label style={{ padding: "7px 14px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}>
               ↑ Load
               <input type="file" accept=".json" style={{ display: "none" }} onChange={(e) => {
                 if (e.target.files[0]) importSession(e.target.files[0], (data, comp) => { setFormData(data); setCompleted(comp); setSubmitted(false); });
@@ -992,9 +1157,7 @@ function App() {
                 ) : (
                   <>
                     <Field field={field} value={formData[field.id]} onChange={handleChange} />
-                    {field.uploadHint && (
-                      <FileUploadButton uploadId={field.uploadId} hint={field.uploadHint} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} compact={true} />
-                    )}
+                    {field.uploadHint && <FileUploadButton uploadId={field.uploadId} hint={field.uploadHint} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />}
                   </>
                 )}
               </div>
