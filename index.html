@@ -816,6 +816,23 @@ function MultiAssetField({ value, onChange }) {
     }
 
     function DocumentVaultField({ uploadedFiles, setUploadedFiles }) {
+      // Map field-level upload keys to friendly labels
+      const FIELD_UPLOAD_LABELS = {
+        file_mortgage: "Mortgage Statement",
+        file_studentloan: "Student Loan Statement",
+        file_paystub: "Pay Stub",
+        file_taxreturn: "Tax Return",
+        file_lifeins: "Life Insurance Policy",
+        file_estate: "Estate Document",
+        file_bank: "Bank Statement",
+        file_brokerage: "Brokerage Statement",
+      };
+
+      // Collect all field-level uploads into a flat list
+      const fieldDocs = Object.entries(FIELD_UPLOAD_LABELS).flatMap(([key, label]) =>
+        (uploadedFiles[key] || []).map((f, i) => ({ ...f, label, key, idx: i }))
+      );
+
       const DOC_TYPES = [
         "Tax Return", "Pay Stub", "W-2 / 1099", "Bank Statement", "Brokerage Statement",
         "Retirement Account Statement", "Mortgage Statement", "Loan Statement",
@@ -858,7 +875,33 @@ function MultiAssetField({ value, onChange }) {
 
       return (
         <div>
-          {/* Existing docs */}
+          {/* Field-level uploads from other sections */}
+          {fieldDocs.length > 0 && (
+            <div style={{ marginBottom: "24px" }}>
+              <div style={{ fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "10px" }}>Attached in Other Sections</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {fieldDocs.map((doc, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", opacity: 0.85 }}>
+                    <span style={{ fontSize: "18px" }}>📄</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "11px", color: COLORS.accent, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "2px" }}>{doc.label}</div>
+                      <div style={{ fontSize: "13px", color: COLORS.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
+                    </div>
+                    <button
+                      onClick={() => setUploadedFiles(prev => {
+                        const updated = [...(prev[doc.key] || [])];
+                        updated.splice(doc.idx, 1);
+                        return { ...prev, [doc.key]: updated };
+                      })}
+                      style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: 0 }}>×</button>
+                  </div>
+                ))}
+              </div>
+              {docs.length > 0 && <div style={{ height: "1px", background: COLORS.border, margin: "20px 0" }} />}
+            </div>
+          )}
+
+          {/* Vault docs added directly here */}
           {docs.length > 0 && (
             <div style={{ marginBottom: "20px", display: "flex", flexDirection: "column", gap: "10px" }}>
               {docs.map((doc) => (
@@ -1109,7 +1152,11 @@ function App() {
                     {field.label}
                   </label>
                 )}
-                {field.type === "multiasset" ? (
+                {field.type === "documentvault" ? (
+                  <DocumentVaultField uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                ) : field.type === "fileonly" ? (
+                  <FileUploadButton uploadId={field.uploadId} hint={field.uploadHint} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                ) : field.type === "multiasset" ? (
                   <MultiAssetField
                     value={formData[field.id]}
                     onChange={(val) => handleChange(field.id, val)}
