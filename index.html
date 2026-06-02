@@ -310,7 +310,10 @@ const SECTIONS = [
       { id: "dob", label: "Date of Birth", type: "date" },
       { id: "email", label: "Email", type: "email" },
       { id: "phone", label: "Phone", type: "tel" },
-      { id: "address", label: "Address", type: "text" },
+      { id: "address", label: "Street Address", type: "text" },
+      { id: "city", label: "City", type: "text" },
+      { id: "state", label: "State", type: "text" },
+      { id: "zip", label: "ZIP Code", type: "text" },
       { id: "employmentStatus", label: "Employment Status", type: "select", options: ["Employed", "Self-Employed", "Retired", "Unemployed", "Part-Time"] },
       { id: "maritalStatus", label: "Marital Status", type: "select", options: ["Single", "Married", "Domestic Partner", "Divorced", "Widowed"] },
       { id: "spousePanel", label: "Spouse / Partner", type: "spousepanel" },
@@ -1838,7 +1841,7 @@ function App() {
                       {field.label}
                     </label>
                     {field.zillowLink && (() => {
-                      const addr = formData.address;
+                      const addr = [formData.address, formData.city, formData.state, formData.zip].filter(Boolean).join(", ");
                       const zillowUrl = addr
                         ? `https://www.zillow.com/homes/${encodeURIComponent(addr)}_rb/`
                         : "https://www.zillow.com";
