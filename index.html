@@ -95,6 +95,7 @@
                   rows.push([section.title, `${label} Account ${i+1} - Institution`, a.institution||""]);
                   rows.push([section.title, `${label} Account ${i+1} - Type`, a.type||""]);
                   rows.push([section.title, `${label} Account ${i+1} - Balance ($)`, a.balance||""]);
+                  rows.push([section.title, `${label} Account ${i+1} - Account #`, a.accountNumber||""]);
                 });
               }
             }
@@ -925,18 +926,18 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
-    function MultiAccountField({ value, onChange, uploadedFiles, setUploadedFiles, accountTypes, addLabel, uploadPrefix }) {
-      const makeRow = () => ({ institution: "", type: accountTypes[0], balance: "", uploadId: uploadPrefix + "_" + Date.now() });
+    function MultiAccountField({ value, onChange, uploadedFiles, setUploadedFiles, accountTypes, addLabel, uploadPrefix, showCheckboxes }) {
+      const makeRow = (type) => ({ institution: "", type: type || accountTypes[0], balance: "", accountNumber: "", uploadId: uploadPrefix + "_" + Date.now() + "_" + Math.random().toString(36).slice(2) });
       const rows = value && Array.isArray(value) ? value : [makeRow()];
 
       React.useEffect(() => {
         if (!value || value.length === 0) onChange([makeRow()]);
       }, []);
 
-      const addRow = () => onChange([...rows, makeRow()]);
+      const addRow = (type) => onChange([...rows, makeRow(type)]);
       const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
       const removeRow = (i) => {
-        if (rows.length === 1) return;
+        if (rows.length === 1 && !showCheckboxes) return;
         const row = rows[i];
         if (row.uploadId) setUploadedFiles(prev => { const u = {...prev}; delete u[row.uploadId]; return u; });
         onChange(rows.filter((_, idx) => idx !== i));
@@ -951,6 +952,20 @@ function MultiAssetField({ value, onChange }) {
         e.target.value = "";
       };
 
+      const handleCheckbox = (type, checked) => {
+        if (checked) {
+          // Add a new card for this type
+          onChange([...rows, makeRow(type)]);
+        } else {
+          // Remove all cards of this type
+          const updated = rows.filter(r => r.type !== type);
+          if (updated.length === 0) onChange([makeRow()]);
+          else onChange(updated);
+        }
+      };
+
+      const checkedTypes = new Set(rows.map(r => r.type));
+
       const inputStyle = {
         background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
         color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
@@ -959,10 +974,29 @@ function MultiAssetField({ value, onChange }) {
 
       return (
         <div>
-          {rows.map((row, i) => {
+          {showCheckboxes && (
+            <div style={{ marginBottom: "16px", padding: "14px 16px", background: "#1a1a22", border: `1px solid ${COLORS.border}`, borderRadius: "8px" }}>
+              <div style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "10px" }}>Select Account Types</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                {accountTypes.filter(t => t !== "Other").map(type => {
+                  const isChecked = checkedTypes.has(type);
+                  return (
+                    <label key={type} style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 12px", background: isChecked ? "rgba(201,169,110,0.12)" : "transparent", border: `1px solid ${isChecked ? COLORS.accent : COLORS.border}`, borderRadius: "20px", cursor: "pointer", fontSize: "12px", color: isChecked ? COLORS.accentLight : COLORS.muted, fontFamily: "inherit", transition: "all 0.15s" }}>
+                      <input type="checkbox" checked={isChecked} onChange={(e) => handleCheckbox(type, e.target.checked)} style={{ accentColor: COLORS.accent, width: "13px", height: "13px" }} />
+                      {type}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {rows.filter(r => r.type !== accountTypes[0] || r.institution || r.balance || r.accountNumber || !showCheckboxes).map((row, i) => {
             const attached = uploadedFiles[row.uploadId] || [];
+            const showCard = !showCheckboxes || checkedTypes.has(row.type);
+            if (!showCard) return null;
             return (
-              <div key={i} style={{ padding: "16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+              <div key={row.uploadId || i} style={{ padding: "16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
                   <div>
                     <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Institution / Custodian</label>
@@ -982,6 +1016,11 @@ function MultiAssetField({ value, onChange }) {
                       onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
                   </div>
                 </div>
+                <div style={{ marginBottom: "10px" }}>
+                  <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Account Number</label>
+                  <input type="text" placeholder="Account number" value={row.accountNumber || ""} onChange={(e) => updateRow(i, "accountNumber", e.target.value)} style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   {attached.length > 0 ? (
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -996,14 +1035,12 @@ function MultiAssetField({ value, onChange }) {
                       <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
                     </label>
                   )}
-                  {rows.length > 1 && (
-                    <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
-                  )}
+                  <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
                 </div>
               </div>
             );
           })}
-          <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+          <button onClick={() => addRow()} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
             onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
             onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
             <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> {addLabel}
@@ -1673,7 +1710,7 @@ function App() {
                 {field.type === "multibrokerageaccount" ? (
                   <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={BROKERAGE_TYPES} addLabel="Add Brokerage Account" uploadPrefix="file_brokerage" />
                 ) : field.type === "multiretirementaccount" ? (
-                  <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={RETIREMENT_TYPES} addLabel="Add Retirement Account" uploadPrefix="file_retirement" />
+                  <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={RETIREMENT_TYPES} addLabel="Add Retirement Account" uploadPrefix="file_retirement" showCheckboxes={true} />
                 ) : field.type === "multistudentloan" ? (
                   <MultiStudentLoanField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
                 ) : field.type === "multibankaccount" ? (
