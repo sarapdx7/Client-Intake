@@ -323,13 +323,12 @@ const SECTIONS = [
       { id: "employer", label: "Employer / Business Name", type: "text" },
       { id: "occupation", label: "Occupation / Title", type: "text" },
       { id: "grossIncome", label: "Annual Gross Income ($)", type: "number", uploadHint: "Most recent pay stub", uploadId: "file_paystub" },
-      { id: "spouseIncomeBlock", label: "Spouse / Partner Income & Employment", type: "spouseincomeblock", showIfSpouse: true },
-
       { id: "bonusIncome", label: "Annual Bonus / Commission ($)", type: "number" },
       { id: "stockPlanType", label: "Company Stock Plan", type: "select", options: ["None", "RSUs", "Stock Options", "ESPP", "RSUs + ESPP", "Stock Options + ESPP", "Multiple"] },
       { id: "stockPlanDetails", label: "Stock Plan Details", type: "textarea", placeholder: "Vesting schedule, grant amounts, company, sell-on-vest vs. hold..." },
       { id: "selfEmployedIncome", label: "Self-Employment / Business Income ($)", type: "number" },
       { id: "rentalIncome", label: "Rental Income ($)", type: "number" },
+      { id: "spouseIncomeBlock", label: "Spouse / Partner Income & Employment", type: "spouseincomeblock", showIfSpouse: true },
       { id: "investmentIncome", label: "Investment / Dividend Income ($)", type: "number" },
       { id: "otherIncome", label: "Other Income & Source", type: "multiincome" },
     ],
@@ -1828,6 +1827,8 @@ function App() {
                   <MultiBankAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
                 ) : field.type === "dependentlist" ? (
                   <DependentListField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
+                ) : field.type === "spouseincomeblock" ? (
+                  <SpouseIncomeBlockField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} spouseName={formData.spousePanel && formData.spousePanel.name} />
                 ) : field.type === "spousepanel" ? (
                   <SpousePanelField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
                 ) : field.type === "documentvault" ? (
