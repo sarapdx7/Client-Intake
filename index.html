@@ -98,6 +98,16 @@
       zip.file(`${clientName}_intake.csv`, csv);
       zip.file(`${clientName}_session.json`, JSON.stringify({ version:1, savedAt: new Date().toISOString(), formData }, null, 2));
 
+      // Add vault docs to zip
+      const vaultDocs = uploadedFiles["doc_vault"] || [];
+      vaultDocs.forEach(doc => {
+        const folder = (doc.type || "Documents").replace(/[^a-zA-Z0-9]/g, "_");
+        if (doc.file) {
+          const b64 = doc.file.data.split(",")[1];
+          zip.folder(folder).file(doc.file.name, b64, { base64: true });
+        }
+      });
+
       const folderMap = { file_mortgage:"Mortgage", file_studentloan:"Student_Loans", file_paystub:"Pay_Stubs", file_taxreturn:"Tax_Returns", file_lifeins:"Life_Insurance", file_estate:"Estate_Docs", file_bank:"Bank_Statements", file_brokerage:"Brokerage_Statements", doc_catchall:"Supporting_Documents" };
       Object.entries(uploadedFiles).forEach(([id, files]) => {
         const folder = folderMap[id] || "Documents";
@@ -135,12 +145,7 @@
 
 
 const SECTIONS = [
-  {
-    id: "documents", title: "Documents", icon: "◫",
-    fields: [
-      { id: "docCatchAll", label: "Upload Supporting Documents", type: "docupload", description: "Tax returns, pay stubs, investment statements, insurance policies, estate docs, or any other supporting files." },
-    ],
-  },
+
   {
     id: "goals",
     title: "Financial Goals",
@@ -804,39 +809,107 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
-    function DocUploadField({ uploadedFiles, setUploadedFiles, description }) {
-      const uploadId = "doc_catchall";
-      const files = uploadedFiles[uploadId] || [];
-      const handleFiles = (e) => {
-        const promises = Array.from(e.target.files).map(f => new Promise(resolve => {
-          const reader = new FileReader();
-          reader.onload = (ev) => resolve({ name: f.name, data: ev.target.result, type: f.type, uploadId });
-          reader.readAsDataURL(f);
-        }));
-        Promise.all(promises).then(loaded => {
-          setUploadedFiles(prev => ({ ...prev, [uploadId]: [...(prev[uploadId] || []), ...loaded] }));
-        });
+    function DocumentVaultField({ uploadedFiles, setUploadedFiles }) {
+      const DOC_TYPES = [
+        "Tax Return", "Pay Stub", "W-2 / 1099", "Bank Statement", "Brokerage Statement",
+        "Retirement Account Statement", "Mortgage Statement", "Loan Statement",
+        "Insurance Policy", "Estate Document (Will/Trust/POA)", "Business Document",
+        "Social Security Statement", "Pension Statement", "Other"
+      ];
+
+      const vaultKey = "doc_vault";
+      const docs = uploadedFiles[vaultKey] || [];
+
+      const [newDoc, setNewDoc] = React.useState({ type: "", description: "", file: null });
+      const [adding, setAdding] = React.useState(false);
+
+      const handleFileSelect = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => setNewDoc(prev => ({ ...prev, file: { name: file.name, data: ev.target.result, type: file.type } }));
+        reader.readAsDataURL(file);
         e.target.value = "";
       };
-      const removeFile = (i) => setUploadedFiles(prev => {
-        const updated = [...(prev[uploadId] || [])]; updated.splice(i, 1);
-        return { ...prev, [uploadId]: updated };
-      });
+
+      const handleAdd = () => {
+        if (!newDoc.file) return;
+        const entry = { ...newDoc, id: Date.now() };
+        setUploadedFiles(prev => ({ ...prev, [vaultKey]: [...(prev[vaultKey] || []), entry] }));
+        setNewDoc({ type: "", description: "", file: null });
+        setAdding(false);
+      };
+
+      const removeDoc = (id) => setUploadedFiles(prev => ({
+        ...prev, [vaultKey]: (prev[vaultKey] || []).filter(d => d.id !== id)
+      }));
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "14px", padding: "10px 12px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
       return (
         <div>
-          {description && <p style={{ fontSize: "13px", color: COLORS.muted, marginBottom: "16px", lineHeight: 1.6 }}>{description}</p>}
-          <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", padding: "28px", background: "#1e1e28", border: `2px dashed ${COLORS.border}`, borderRadius: "10px", color: COLORS.muted, cursor: "pointer", fontSize: "14px", fontFamily: "inherit", marginBottom: "16px" }}>
-            <span style={{ fontSize: "24px" }}>⊕</span>
-            <span>Click to upload files<br /><span style={{ fontSize: "11px", opacity: 0.6 }}>PDF, JPG, PNG, Word, Excel</span></span>
-            <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} onChange={handleFiles} />
-          </label>
-          {files.map((f, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "8px" }}>
-              <span>📄</span>
-              <span style={{ flex: 1, fontSize: "13px", color: COLORS.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-              <button onClick={() => removeFile(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: 0 }}>×</button>
+          {/* Existing docs */}
+          {docs.length > 0 && (
+            <div style={{ marginBottom: "20px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              {docs.map((doc) => (
+                <div key={doc.id} style={{ display: "flex", alignItems: "flex-start", gap: "12px", padding: "14px 16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px" }}>
+                  <span style={{ fontSize: "20px", marginTop: "2px" }}>📄</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "12px", color: COLORS.accent, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "2px" }}>{doc.type || "Document"}</div>
+                    <div style={{ fontSize: "14px", color: COLORS.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.file.name}</div>
+                    {doc.description && <div style={{ fontSize: "12px", color: COLORS.muted, marginTop: "2px" }}>{doc.description}</div>}
+                  </div>
+                  <button onClick={() => removeDoc(doc.id)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: 0, flexShrink: 0 }}>×</button>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
+
+          {/* Add new doc form */}
+          {adding ? (
+            <div style={{ padding: "20px", background: "#1e1e28", border: `1px solid ${COLORS.accent}44`, borderRadius: "10px", display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>Document Type</label>
+                <select value={newDoc.type} onChange={(e) => setNewDoc(p => ({ ...p, type: e.target.value }))} style={inputStyle}>
+                  <option value="">— Select type —</option>
+                  {DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>Description (optional)</label>
+                <input type="text" placeholder="e.g. 2024 Federal Tax Return" value={newDoc.description} onChange={(e) => setNewDoc(p => ({ ...p, description: e.target.value }))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>File</label>
+                {newDoc.file ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#16161d", border: `1px solid ${COLORS.complete}44`, borderRadius: "6px" }}>
+                    <span>📄</span>
+                    <span style={{ flex: 1, fontSize: "13px", color: COLORS.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{newDoc.file.name}</span>
+                    <button onClick={() => setNewDoc(p => ({ ...p, file: null }))} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
+                  </div>
+                ) : (
+                  <label style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", background: "#16161d", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", cursor: "pointer", color: COLORS.muted, fontSize: "13px", fontFamily: "inherit" }}>
+                    <span style={{ fontSize: "16px" }}>⊕</span> Choose file
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.csv" style={{ display: "none" }} onChange={handleFileSelect} />
+                  </label>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button onClick={handleAdd} disabled={!newDoc.file} style={{ padding: "10px 24px", background: newDoc.file ? COLORS.accent : COLORS.border, color: newDoc.file ? "#0f0f14" : COLORS.muted, border: "none", borderRadius: "6px", fontSize: "14px", fontWeight: 700, cursor: newDoc.file ? "pointer" : "default", fontFamily: "inherit" }}>Add Document</button>
+                <button onClick={() => { setAdding(false); setNewDoc({ type: "", description: "", file: null }); }} style={{ padding: "10px 20px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "14px", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setAdding(true)} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "10px 16px", fontFamily: "inherit", transition: "all 0.2s" }}
+              onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+              onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+              <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Document
+            </button>
+          )}
         </div>
       );
     }
@@ -920,7 +993,14 @@ function App() {
     if (currentSection > 0) setCurrentSection(currentSection - 1);
   };
 
-  const section = SECTIONS[currentSection];
+  const section = SECTIONS[currentSection,
+  {
+    id: "documents", title: "Documents", icon: "◫",
+    fields: [
+      { id: "documents", label: "Client Documents", type: "documentvault" },
+    ],
+  },
+  ];
   const progress = Math.round((completed.size / SECTIONS.length) * 100);
 
   if (submitted) {
