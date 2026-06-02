@@ -331,6 +331,12 @@ const SECTIONS = [
       { id: "taxNotes", label: "Tax Notes", type: "textarea", placeholder: "Recent large events, stock concentration, rental activity..." },
     ],
   },
+  {
+    id: "documents", title: "Documents", icon: "◫",
+    fields: [
+      { id: "documents", label: "Client Documents", type: "documentvault" },
+    ],
+  }
 ];
 
 const COLORS = {
@@ -993,14 +999,7 @@ function App() {
     if (currentSection > 0) setCurrentSection(currentSection - 1);
   };
 
-  const section = SECTIONS[currentSection,
-  {
-    id: "documents", title: "Documents", icon: "◫",
-    fields: [
-      { id: "documents", label: "Client Documents", type: "documentvault" },
-    ],
-  },
-  ];
+  const section = SECTIONS[currentSection];
   const progress = Math.round((completed.size / SECTIONS.length) * 100);
 
   if (submitted) {
