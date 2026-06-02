@@ -83,7 +83,7 @@
       const rows = [["Section", "Field", "Value"]];
       SECTIONS.forEach((section) => {
         section.fields.forEach((field) => {
-          if (["fileonly","docupload","documentvault","multibrokerageaccount","multiretirementaccount","multistudentloan","multibankaccount","dependentlist","spousepanel","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
+          if (["fileonly","docupload","documentvault","multibrokerageaccount","multiretirementaccount","multistudentloan","multibankaccount","spouseincomeblock","dependentlist","spousepanel","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
             if (field.type === "multiasset") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Asset ${i+1} - Name`,r.name||""]); rows.push([section.title,`Other Asset ${i+1} - Value`,r.amount||""]); }); }
             else if (field.type === "multiincome") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Income ${i+1} - Source`,r.source||""]); rows.push([section.title,`Other Income ${i+1} - Amount`,r.amount||""]); }); }
             else if (field.type === "multiloan") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Auto Loan ${i+1} - Lender`,r.name||""]); rows.push([section.title,`Auto Loan ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Auto Loan ${i+1} - APR`,r.rate||""]); rows.push([section.title,`Auto Loan ${i+1} - Payment`,r.payment||""]); }); }
@@ -133,6 +133,18 @@
                   rows.push([section.title, `Dependent ${i+1} - Name`, d.name||""]);
                   rows.push([section.title, `Dependent ${i+1} - Age`, d.age||""]);
                 });
+              }
+            }
+            else if (field.type === "spouseincomeblock") {
+              const s = formData[field.id];
+              if (s) {
+                const spouseName = (formData.spousePanel && formData.spousePanel.name) || "Spouse/Partner";
+                rows.push([section.title, `${spouseName} - Employment Status`, s.employmentStatus||""]);
+                rows.push([section.title, `${spouseName} - Employer`, s.employer||""]);
+                rows.push([section.title, `${spouseName} - Annual Gross Income ($)`, s.grossIncome||""]);
+                rows.push([section.title, `${spouseName} - Bonus / Commission ($)`, s.bonusIncome||""]);
+                rows.push([section.title, `${spouseName} - Self-Employment Income ($)`, s.selfEmployedIncome||""]);
+                rows.push([section.title, `${spouseName} - Other Income`, s.otherIncome||""]);
               }
             }
             else if (field.type === "spousepanel") {
@@ -311,7 +323,7 @@ const SECTIONS = [
       { id: "employer", label: "Employer / Business Name", type: "text" },
       { id: "occupation", label: "Occupation / Title", type: "text" },
       { id: "grossIncome", label: "Annual Gross Income ($)", type: "number", uploadHint: "Most recent pay stub", uploadId: "file_paystub" },
-      { id: "spouseIncome", label: "Spouse/Partner Annual Income ($)", type: "number", showIfSpouse: true },
+      { id: "spouseIncomeBlock", label: "Spouse / Partner Income & Employment", type: "spouseincomeblock", showIfSpouse: true },
 
       { id: "bonusIncome", label: "Annual Bonus / Commission ($)", type: "number" },
       { id: "stockPlanType", label: "Company Stock Plan", type: "select", options: ["None", "RSUs", "Stock Options", "ESPP", "RSUs + ESPP", "Stock Options + ESPP", "Multiple"] },
@@ -1345,6 +1357,48 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
+    function SpouseIncomeBlockField({ value, onChange, spouseName }) {
+      const data = value || {};
+      const update = (key, val) => onChange({ ...data, [key]: val });
+      const label = spouseName || "Spouse / Partner";
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "14px", padding: "10px 12px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      return (
+        <div style={{ padding: "20px", background: "#1e1e28", border: `1px solid ${COLORS.accent}44`, borderRadius: "10px" }}>
+          <div style={{ fontSize: "13px", color: COLORS.accentLight, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "16px" }}>{label}</div>
+          <div style={{ display: "grid", gap: "14px" }}>
+            {[
+              { key: "employmentStatus", label: "Employment Status", type: "select", options: ["Employed", "Self-Employed", "Retired", "Unemployed", "Part-Time", "Stay-at-Home"] },
+              { key: "employer", label: "Employer / Business", type: "text" },
+              { key: "grossIncome", label: "Annual Gross Income ($)", type: "number" },
+              { key: "bonusIncome", label: "Annual Bonus / Commission ($)", type: "number" },
+              { key: "selfEmployedIncome", label: "Self-Employment / Business Income ($)", type: "number" },
+              { key: "otherIncome", label: "Other Income & Source", type: "text", placeholder: "e.g. rental, Social Security..." },
+            ].map(f => (
+              <div key={f.key}>
+                <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>{f.label}</label>
+                {f.type === "select" ? (
+                  <select value={data[f.key] || ""} onChange={(e) => update(f.key, e.target.value)} style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                    <option value="">— Select —</option>
+                    {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input type={f.type} placeholder={f.placeholder || ""} value={data[f.key] || ""} onChange={(e) => update(f.key, e.target.value)} style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     function SpousePanelField({ value, onChange }) {
       const data = value || null;
       const [open, setOpen] = React.useState(!!data);
@@ -1382,9 +1436,7 @@ function MultiAssetField({ value, onChange }) {
               { key: "dob", label: "Date of Birth", type: "date" },
               { key: "email", label: "Email", type: "email" },
               { key: "phone", label: "Phone", type: "tel" },
-              { key: "employmentStatus", label: "Employment Status", type: "select", options: ["Employed", "Self-Employed", "Retired", "Unemployed", "Part-Time", "Stay-at-Home"] },
-              { key: "employer", label: "Employer / Business", type: "text" },
-              { key: "income", label: "Annual Income ($)", type: "number" },
+
             ].map(f => (
               <div key={f.key}>
                 <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>{f.label}</label>
@@ -1751,7 +1803,7 @@ function App() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "20px" }}>
             {section.fields.filter(field => !field.showIfSpouse || (formData.spousePanel && formData.spousePanel.name)).map((field) => (
               <div key={field.id}>
-                {field.type !== "mortgagebreakdown" && (
+                {field.type !== "mortgagebreakdown" && field.type !== "spouseincomeblock" && (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
                     <label style={{ fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase" }}>
                       {field.label}
