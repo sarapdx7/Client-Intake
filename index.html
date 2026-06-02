@@ -124,6 +124,7 @@
                   rows.push([section.title, `Bank Account ${i+1} - Balance ($)`, a.balance||""]);
                   rows.push([section.title, `Bank Account ${i+1} - Routing #`, a.routing||""]);
                   rows.push([section.title, `Bank Account ${i+1} - Account #`, a.accountNumber||""]);
+                  rows.push([section.title, `Bank Account ${i+1} - Owner`, a.owner||""]);
                 });
               }
             }
@@ -1013,8 +1014,8 @@ function MultiAssetField({ value, onChange }) {
 
     function MultiAccountField({ value, onChange, uploadedFiles, setUploadedFiles, accountTypes, addLabel, uploadPrefix, showCheckboxes, spousePanel, clientName }) {
       const makeRow = (type) => ({ institution: "", type: type || accountTypes[0], balance: "", accountNumber: "", owner: "", uploadId: uploadPrefix + "_" + Date.now() + "_" + Math.random().toString(36).slice(2) });
-      const ownerOptions = spousePanel && spousePanel.name
-        ? [clientName || "Client", spousePanel.name, "Joint"].filter(Boolean)
+      const ownerOptions = spousePanel && (spousePanel.name || Object.keys(spousePanel).length > 0)
+        ? [clientName || "Client", spousePanel.name || "Spouse/Partner", "Joint"].filter(Boolean)
         : null;
       const rows = value && Array.isArray(value) ? value : (showCheckboxes ? [] : [makeRow()]);
 
@@ -1224,8 +1225,11 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
-    function MultiBankAccountField({ value, onChange, uploadedFiles, setUploadedFiles }) {
-      const defaultRow = { institution: "", type: "Checking", balance: "", routing: "", accountNumber: "", uploadId: "file_bank_" + Date.now() };
+    function MultiBankAccountField({ value, onChange, uploadedFiles, setUploadedFiles, spousePanel, clientName }) {
+      const defaultRow = { institution: "", type: "Checking", balance: "", routing: "", accountNumber: "", owner: "", uploadId: "file_bank_" + Date.now() };
+      const ownerOptions = spousePanel && (spousePanel.name || Object.keys(spousePanel).length > 0)
+        ? [clientName || "Client", spousePanel.name || "Spouse/Partner", "Joint"].filter(Boolean)
+        : null;
       const rows = value && Array.isArray(value) ? value : [{ ...defaultRow }];
 
       // Initialize with one default row if empty
@@ -1291,7 +1295,7 @@ function MultiAssetField({ value, onChange }) {
                       onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
                   </div>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: ownerOptions ? "1fr 1fr 1fr" : "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
                   <div>
                     <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Routing Number</label>
                     <input type="text" placeholder="9 digits" value={row.routing} onChange={(e) => updateRow(i, "routing", e.target.value)} style={inputStyle}
@@ -1302,6 +1306,16 @@ function MultiAssetField({ value, onChange }) {
                     <input type="text" placeholder="Account number" value={row.accountNumber} onChange={(e) => updateRow(i, "accountNumber", e.target.value)} style={inputStyle}
                       onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
                   </div>
+                  {ownerOptions && (
+                    <div>
+                      <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Owner</label>
+                      <select value={row.owner || ""} onChange={(e) => updateRow(i, "owner", e.target.value)} style={inputStyle}
+                        onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                        <option value="">— Select —</option>
+                        {ownerOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   {attached.length > 0 ? (
@@ -1823,14 +1837,21 @@ function App() {
                     <label style={{ fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase" }}>
                       {field.label}
                     </label>
-                    {field.zillowLink && (
-                      <a href="https://www.zillow.com" target="_blank" rel="noopener noreferrer"
-                        style={{ fontSize: "11px", color: COLORS.accent, textDecoration: "none", letterSpacing: "0.05em", display: "inline-flex", alignItems: "center", gap: "4px" }}
-                        onMouseOver={(e) => e.currentTarget.style.textDecoration = "underline"}
-                        onMouseOut={(e) => e.currentTarget.style.textDecoration = "none"}>
-                        🏠 Look up on Zillow ↗
-                      </a>
-                    )}
+                    {field.zillowLink && (() => {
+                      const addr = formData.address;
+                      const zillowUrl = addr
+                        ? `https://www.zillow.com/homes/${encodeURIComponent(addr)}_rb/`
+                        : "https://www.zillow.com";
+                      return (
+                        <a href={zillowUrl} target="_blank" rel="noopener noreferrer"
+                          title={addr ? `Search Zillow for: ${addr}` : "Open Zillow"}
+                          style={{ fontSize: "11px", color: COLORS.accent, textDecoration: "none", letterSpacing: "0.05em", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                          onMouseOver={(e) => e.currentTarget.style.textDecoration = "underline"}
+                          onMouseOut={(e) => e.currentTarget.style.textDecoration = "none"}>
+                          🏠 {addr ? "Look up this address on Zillow ↗" : "Look up on Zillow ↗"}
+                        </a>
+                      );
+                    })()}
                   </div>
                 )}
                 {field.type === "multibrokerageaccount" ? (
@@ -1840,7 +1861,7 @@ function App() {
                 ) : field.type === "multistudentloan" ? (
                   <MultiStudentLoanField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
                 ) : field.type === "multibankaccount" ? (
-                  <MultiBankAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                  <MultiBankAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} spousePanel={formData.spousePanel} clientName={[formData.firstName, formData.lastName].filter(Boolean).join(" ")} />
                 ) : field.type === "dependentlist" ? (
                   <DependentListField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
                 ) : field.type === "spouseincomeblock" ? (
