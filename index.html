@@ -99,6 +99,7 @@
                   rows.push([section.title, `${label} Account ${i+1} - Type`, a.type||""]);
                   rows.push([section.title, `${label} Account ${i+1} - Balance ($)`, a.balance||""]);
                   rows.push([section.title, `${label} Account ${i+1} - Account #`, a.accountNumber||""]);
+                  rows.push([section.title, `${label} Account ${i+1} - Owner`, a.owner||""]);
                 });
               }
             }
@@ -940,7 +941,7 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
-    function AccountCard({ row, i, updateRow, removeRow, uploadedFiles, setUploadedFiles, handleFile, accountTypes, inputStyle, showRemove, showCheckboxes }) {
+    function AccountCard({ row, i, updateRow, removeRow, uploadedFiles, setUploadedFiles, handleFile, accountTypes, inputStyle, showRemove, showCheckboxes, ownerOptions }) {
       const attached = uploadedFiles[row.uploadId] || [];
       return (
         <div style={{ padding: "16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
@@ -971,10 +972,22 @@ function MultiAssetField({ value, onChange }) {
                 onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
             </div>
           </div>
-          <div style={{ marginBottom: "10px" }}>
-            <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Account Number</label>
-            <input type="text" placeholder="Account number" value={row.accountNumber || ""} onChange={(e) => updateRow(i, "accountNumber", e.target.value)} style={inputStyle}
-              onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+          <div style={{ display: "grid", gridTemplateColumns: ownerOptions ? "1fr 1fr" : "1fr", gap: "10px", marginBottom: "10px" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Account Number</label>
+              <input type="text" placeholder="Account number" value={row.accountNumber || ""} onChange={(e) => updateRow(i, "accountNumber", e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+            </div>
+            {ownerOptions && (
+              <div>
+                <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Owner</label>
+                <select value={row.owner || ""} onChange={(e) => updateRow(i, "owner", e.target.value)} style={inputStyle}
+                  onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                  <option value="">— Select —</option>
+                  {ownerOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+            )}
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             {attached.length > 0 ? (
@@ -998,8 +1011,11 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
-    function MultiAccountField({ value, onChange, uploadedFiles, setUploadedFiles, accountTypes, addLabel, uploadPrefix, showCheckboxes }) {
-      const makeRow = (type) => ({ institution: "", type: type || accountTypes[0], balance: "", accountNumber: "", uploadId: uploadPrefix + "_" + Date.now() + "_" + Math.random().toString(36).slice(2) });
+    function MultiAccountField({ value, onChange, uploadedFiles, setUploadedFiles, accountTypes, addLabel, uploadPrefix, showCheckboxes, spousePanel, clientName }) {
+      const makeRow = (type) => ({ institution: "", type: type || accountTypes[0], balance: "", accountNumber: "", owner: "", uploadId: uploadPrefix + "_" + Date.now() + "_" + Math.random().toString(36).slice(2) });
+      const ownerOptions = spousePanel && spousePanel.name
+        ? [clientName || "Client", spousePanel.name, "Joint"].filter(Boolean)
+        : null;
       const rows = value && Array.isArray(value) ? value : (showCheckboxes ? [] : [makeRow()]);
 
       React.useEffect(() => {
@@ -1072,7 +1088,7 @@ function MultiAssetField({ value, onChange }) {
                   {group.map(({ row, i }) => (
                     <AccountCard key={row.uploadId} row={row} i={i} updateRow={updateRow} removeRow={removeRow}
                       uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} handleFile={handleFile}
-                      accountTypes={accountTypes} inputStyle={inputStyle} showRemove={group.length > 1} showCheckboxes={true} />
+                      accountTypes={accountTypes} inputStyle={inputStyle} showRemove={group.length > 1} showCheckboxes={true} ownerOptions={ownerOptions} />
                   ))}
                   <button onClick={() => addRow(type)}
                     style={{ display: "inline-flex", alignItems: "center", gap: "5px", background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit", padding: "4px 0", marginBottom: "4px" }}
@@ -1098,7 +1114,7 @@ function MultiAssetField({ value, onChange }) {
           {rows.map((row, i) => (
             <AccountCard key={row.uploadId || i} row={row} i={i} updateRow={updateRow} removeRow={removeRow}
               uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} handleFile={handleFile}
-              accountTypes={accountTypes} inputStyle={inputStyle} showRemove={rows.length > 1} showCheckboxes={false} />
+              accountTypes={accountTypes} inputStyle={inputStyle} showRemove={rows.length > 1} showCheckboxes={false} ownerOptions={ownerOptions} />
           ))}
           <button onClick={() => addRow()} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
             onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
@@ -1818,9 +1834,9 @@ function App() {
                   </div>
                 )}
                 {field.type === "multibrokerageaccount" ? (
-                  <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={BROKERAGE_TYPES} addLabel="Add Brokerage Account" uploadPrefix="file_brokerage" />
+                  <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={BROKERAGE_TYPES} addLabel="Add Brokerage Account" uploadPrefix="file_brokerage" spousePanel={formData.spousePanel} clientName={[formData.firstName, formData.lastName].filter(Boolean).join(" ")} />
                 ) : field.type === "multiretirementaccount" ? (
-                  <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={RETIREMENT_TYPES} addLabel="Add Retirement Account" uploadPrefix="file_retirement" showCheckboxes={true} />
+                  <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={RETIREMENT_TYPES} addLabel="Add Retirement Account" uploadPrefix="file_retirement" showCheckboxes={true} spousePanel={formData.spousePanel} clientName={[formData.firstName, formData.lastName].filter(Boolean).join(" ")} />
                 ) : field.type === "multistudentloan" ? (
                   <MultiStudentLoanField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
                 ) : field.type === "multibankaccount" ? (
