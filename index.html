@@ -961,7 +961,21 @@ function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: COLORS.bg, fontFamily: "'Cormorant Garamond', Georgia, serif", color: COLORS.text }}>
-      {resumeOverlay}
+      {resumePrompt && (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Cormorant Garamond', Georgia, serif" }}>
+        <div style={{ background: "#16161d", border: `1px solid ${COLORS.border}`, borderRadius: "12px", padding: "40px", maxWidth: "420px", width: "90%", textAlign: "center" }}>
+          <div style={{ fontSize: "40px", marginBottom: "16px" }}>◈</div>
+          <h2 style={{ fontSize: "24px", fontWeight: 300, color: COLORS.accentLight, marginBottom: "8px" }}>Resume Session?</h2>
+          <p style={{ color: COLORS.muted, fontSize: "14px", marginBottom: "4px" }}>Saved session found for</p>
+          <p style={{ color: COLORS.text, fontSize: "20px", fontWeight: 600, marginBottom: "4px" }}>{resumePrompt.clientName}</p>
+          <p style={{ color: COLORS.muted, fontSize: "11px", letterSpacing: "0.05em", marginBottom: "32px" }}>Last saved: {new Date(resumePrompt.savedAt).toLocaleString()}</p>
+          <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+            <button onClick={() => { setFormData(resumePrompt.formData); setCompleted(new Set(resumePrompt.completed||[])); setUploadedFiles(resumePrompt.uploadedFiles||{}); setCurrentSection(resumePrompt.currentSection||0); setResumePrompt(null); }} style={{ padding: "12px 28px", background: COLORS.accent, color: "#0f0f14", border: "none", borderRadius: "8px", fontSize: "15px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Resume</button>
+            <button onClick={() => { clearSessionFromDB(); setResumePrompt(null); }} style={{ padding: "12px 24px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "8px", fontSize: "15px", cursor: "pointer", fontFamily: "inherit" }}>Start Fresh</button>
+          </div>
+        </div>
+      </div>
+    )}
       {/* Header */}
       <div style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "20px 40px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
