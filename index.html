@@ -224,6 +224,11 @@
       zip.file(`${clientName}_intake.csv`, csv);
       zip.file(`${clientName}_session.json`, JSON.stringify({ version:1, savedAt: new Date().toISOString(), formData }, null, 2));
 
+      // Add Excel file to ZIP
+      const wb = buildWorkbook(formData);
+      const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      zip.file(`${clientName}_financial_intake.xlsx`, wbout);
+
       // Build a rich folder map with per-account named folders
       const folderMap = {
         file_mortgage: "Debts/Mortgage",
@@ -401,7 +406,7 @@
     }
 
 
-    function exportExcel(formData, uploadedFiles) {
+    function buildWorkbook(formData) {
       const wb = XLSX.utils.book_new();
       const clientName = [formData.firstName, formData.lastName].filter(Boolean).join(" ") || "Client";
 
@@ -653,7 +658,12 @@
       }
       addSheet("Goals", goals);
 
-      // ── Write file ───────────────────────────────────────────
+      return wb;
+    }
+
+    function exportExcel(formData, uploadedFiles) {
+      const clientName = [formData.firstName, formData.lastName].filter(Boolean).join(" ") || "Client";
+      const wb = buildWorkbook(formData);
       const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
       const blob = new Blob([wbout], { type: "application/octet-stream" });
       const url = URL.createObjectURL(blob);
