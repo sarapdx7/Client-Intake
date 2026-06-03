@@ -84,7 +84,7 @@
       const rows = [["Section", "Field", "Value"]];
       SECTIONS.forEach((section) => {
         section.fields.forEach((field) => {
-          if (["fileonly","docupload","documentvault","multibrokerageaccount","multiretirementaccount","goallist","multirealestateaccount","multistudentloan","multibankaccount","stockplanfield","spouseincomeblock","dependentlist","spousepanel","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
+          if (["fileonly","docupload","documentvault","multibrokerageaccount","multiretirementaccount","clientincomecard","goallist","multirealestateaccount","multistudentloan","multibankaccount","stockplanfield","spouseincomeblock","dependentlist","spousepanel","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
             if (field.type === "multiasset") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Asset ${i+1} - Name`,r.name||""]); rows.push([section.title,`Other Asset ${i+1} - Value`,r.amount||""]); }); }
             else if (field.type === "multiincome") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Income ${i+1} - Source`,r.source||""]); rows.push([section.title,`Other Income ${i+1} - Amount`,r.amount||""]); }); }
             else if (field.type === "multiloan") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Auto Loan ${i+1} - Lender`,r.name||""]); rows.push([section.title,`Auto Loan ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Auto Loan ${i+1} - APR`,r.rate||""]); rows.push([section.title,`Auto Loan ${i+1} - Payment`,r.payment||""]); }); }
@@ -103,6 +103,23 @@
                   rows.push([section.title, `${label} Account ${i+1} - Owner`, a.owner||""]);
                 });
               }
+            }
+            else if (field.type === "clientincomecard") {
+              const d = formData[field.id] || {};
+              rows.push([section.title, "Employer / Business Name", d.employer||""]);
+              rows.push([section.title, "Occupation / Title", d.occupation||""]);
+              rows.push([section.title, "Annual Gross Income ($)", d.grossIncome||""]);
+              rows.push([section.title, "Annual Bonus / Commission ($)", d.bonusIncome||""]);
+              rows.push([section.title, "Self-Employment Income ($)", d.selfEmployedIncome||""]);
+              rows.push([section.title, "Rental Income ($)", d.rentalIncome||""]);
+              const sp = d.stockPlans || [];
+              sp.forEach((p, i) => {
+                rows.push([section.title, `Stock Plan ${i+1} - Type`, p.type||""]);
+                rows.push([section.title, `Stock Plan ${i+1} - Company`, p.company||""]);
+                rows.push([section.title, `Stock Plan ${i+1} - Grant ($)`, p.grantAmount||""]);
+                rows.push([section.title, `Stock Plan ${i+1} - Vested ($)`, p.vestedAmount||""]);
+                rows.push([section.title, `Stock Plan ${i+1} - Unvested ($)`, p.unvestedAmount||""]);
+              });
             }
             else if (field.type === "goallist") {
               const goals = formData[field.id];
@@ -433,12 +450,12 @@
       // ── 2. Income & Employment ───────────────────────────────
       const income = [
         ...hdr("Income & Employment"),
-        ["Employer", formData.employer||""],
-        ["Occupation", formData.occupation||""],
-        ["Annual Gross Income", formData.grossIncome||""],
-        ["Annual Bonus / Commission", formData.bonusIncome||""],
-        ["Self-Employment Income", formData.selfEmployedIncome||""],
-        ["Rental Income", formData.rentalIncome||""],
+        ["Employer", (formData.clientIncome && formData.clientIncome.employer) || formData.employer||""],
+        ["Occupation", (formData.clientIncome && formData.clientIncome.occupation) || formData.occupation||""],
+        ["Annual Gross Income", (formData.clientIncome && formData.clientIncome.grossIncome) || formData.grossIncome||""],
+        ["Annual Bonus / Commission", (formData.clientIncome && formData.clientIncome.bonusIncome) || formData.bonusIncome||""],
+        ["Self-Employment Income", (formData.clientIncome && formData.clientIncome.selfEmployedIncome) || formData.selfEmployedIncome||""],
+        ["Rental Income", (formData.clientIncome && formData.clientIncome.rentalIncome) || formData.rentalIncome||""],
         [],
       ];
       const otherIncome = formData.otherIncome || [];
@@ -2141,6 +2158,59 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
+    function ClientIncomeCardField({ value, onChange, formData, uploadedFiles, setUploadedFiles }) {
+      const data = value || {};
+      const update = (key, val) => onChange({ ...data, [key]: val });
+      const hasSpouse = formData.spousePanel && (formData.spousePanel.name || Object.keys(formData.spousePanel).length > 0);
+      const clientName = [formData.firstName, formData.lastName].filter(Boolean).join(" ") || "Client";
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "14px", padding: "10px 12px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      const fields = [
+        { key: "employer", label: "Employer / Business Name", type: "text" },
+        { key: "occupation", label: "Occupation / Title", type: "text" },
+        { key: "grossIncome", label: "Annual Gross Income ($)", type: "number" },
+        { key: "bonusIncome", label: "Annual Bonus / Commission ($)", type: "number" },
+        { key: "selfEmployedIncome", label: "Self-Employment / Business Income ($)", type: "number" },
+        { key: "rentalIncome", label: "Rental Income ($)", type: "number" },
+      ];
+
+      const inner = (
+        <div style={{ display: "grid", gap: "14px" }}>
+          {fields.map(f => (
+            <div key={f.key}>
+              <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>{f.label}</label>
+              <input type={f.type} value={data[f.key] || ""} onChange={(e) => update(f.key, e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+            </div>
+          ))}
+          <div>
+            <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>Pay Stub</label>
+            <FileUploadButton uploadId="file_paystub" hint="Attach most recent pay stub" uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+          </div>
+          <div>
+            <div style={{ fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "8px" }}>Employer Stock Plans</div>
+            <StockPlanField value={data.stockPlans} onChange={(val) => update("stockPlans", val)} label="Stock Plans" />
+          </div>
+        </div>
+      );
+
+      if (!hasSpouse) {
+        return inner;
+      }
+
+      return (
+        <div style={{ padding: "20px", background: "#1e1e28", border: `1px solid ${COLORS.accent}44`, borderRadius: "10px" }}>
+          <div style={{ fontSize: "13px", color: COLORS.accentLight, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "16px" }}>{clientName}</div>
+          {inner}
+        </div>
+      );
+    }
+
     function GoalListField({ value, onChange }) {
       const rows = value && Array.isArray(value) ? value : [{ goal: "", priority: "High" }];
 
@@ -2619,7 +2689,7 @@ onClick={() => exportZip(formData, uploadedFiles)}
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "20px" }}>
             {section.fields.filter(field => !field.showIfSpouse || (formData.spousePanel && formData.spousePanel.name)).map((field) => (
               <div key={field.id}>
-                {field.type !== "mortgagebreakdown" && field.type !== "spouseincomeblock" && field.type !== "stockplanfield" && (
+                {field.type !== "mortgagebreakdown" && field.type !== "spouseincomeblock" && field.type !== "stockplanfield" && field.type !== "clientincomecard" && (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
                     <label style={{ fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase" }}>
                       {field.label}
@@ -2647,6 +2717,8 @@ onClick={() => exportZip(formData, uploadedFiles)}
                   <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={RETIREMENT_TYPES} addLabel="Add Retirement Account" uploadPrefix="file_retirement" showCheckboxes={true} spousePanel={formData.spousePanel} clientName={[formData.firstName, formData.lastName].filter(Boolean).join(" ")} />
                 ) : field.type === "multistudentloan" ? (
                   <MultiStudentLoanField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                ) : field.type === "clientincomecard" ? (
+                  <ClientIncomeCardField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} formData={formData} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
                 ) : field.type === "goallist" ? (
                   <GoalListField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
                 ) : field.type === "multirealestateaccount" ? (
