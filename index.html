@@ -1583,6 +1583,18 @@ function MultiAssetField({ value, onChange }) {
                 )}
               </div>
             ))}
+
+            {/* Pay stub upload */}
+            <div>
+              <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>Pay Stub</label>
+              <FileUploadButton uploadId="file_spouse_paystub" hint="Attach pay stub" uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+            </div>
+
+            {/* Spouse stock plans */}
+            <div>
+              <div style={{ fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "8px" }}>Employer Stock Plans</div>
+              <StockPlanField value={data.stockPlans} onChange={(val) => update("stockPlans", val)} label="Spouse Stock Plans" />
+            </div>
           </div>
         </div>
       );
