@@ -1419,17 +1419,20 @@ function MultiAssetField({ value, onChange }) {
 
     function StockPlanField({ value, onChange, label }) {
       const makeRow = (type) => ({ company: "", type: type || STOCK_PLAN_TYPES[0], grantAmount: "", vestedAmount: "", unvestedAmount: "", sellAtVest: "", notes: "", id: Date.now() + "_" + Math.random().toString(36).slice(2) });
-      const rows = value && Array.isArray(value) ? value : [];
 
-      const addRow = (type) => onChange([...rows, makeRow(type)]);
-      const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
-      const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
+      const getRows = () => (value && Array.isArray(value) ? value : []);
 
+      const addRow = (type) => onChange([...getRows(), makeRow(type)]);
+      const updateRow = (i, key, val) => onChange(getRows().map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+      const removeRow = (i) => onChange(getRows().filter((_, idx) => idx !== i));
+
+      const rows = getRows();
       const checkedTypes = new Set(rows.map(r => r.type));
 
       const handleCheckbox = (type, checked) => {
-        if (checked) onChange([...rows, makeRow(type)]);
-        else onChange(rows.filter(r => r.type !== type));
+        const current = getRows();
+        if (checked) onChange([...current, makeRow(type)]);
+        else onChange(current.filter(r => r.type !== type));
       };
 
       const inputStyle = {
@@ -1439,7 +1442,7 @@ function MultiAssetField({ value, onChange }) {
       };
 
       const typeGroups = {};
-      rows.forEach((row, i) => {
+      getRows().forEach((row, i) => {
         if (!typeGroups[row.type]) typeGroups[row.type] = [];
         typeGroups[row.type].push({ row, i });
       });
@@ -1448,7 +1451,7 @@ function MultiAssetField({ value, onChange }) {
         <div>
           {/* Checkbox selector */}
           <div style={{ marginBottom: "16px", padding: "14px 16px", background: "#1a1a22", border: `1px solid ${COLORS.border}`, borderRadius: "8px" }}>
-            <div style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "10px" }}>Select Plan Types</div>
+            <div style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "10px" }}>Employer Stock Plans</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
               {STOCK_PLAN_TYPES.filter(t => t !== "Other").map(type => {
                 const isChecked = checkedTypes.has(type);
