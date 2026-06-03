@@ -83,7 +83,7 @@
       const rows = [["Section", "Field", "Value"]];
       SECTIONS.forEach((section) => {
         section.fields.forEach((field) => {
-          if (["fileonly","docupload","documentvault","multibrokerageaccount","multiretirementaccount","multistudentloan","multibankaccount","stockplanfield","spouseincomeblock","dependentlist","spousepanel","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
+          if (["fileonly","docupload","documentvault","multibrokerageaccount","multiretirementaccount","multirealestateaccount","multistudentloan","multibankaccount","stockplanfield","spouseincomeblock","dependentlist","spousepanel","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
             if (field.type === "multiasset") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Asset ${i+1} - Name`,r.name||""]); rows.push([section.title,`Other Asset ${i+1} - Value`,r.amount||""]); }); }
             else if (field.type === "multiincome") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Income ${i+1} - Source`,r.source||""]); rows.push([section.title,`Other Income ${i+1} - Amount`,r.amount||""]); }); }
             else if (field.type === "multiloan") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Auto Loan ${i+1} - Lender`,r.name||""]); rows.push([section.title,`Auto Loan ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Auto Loan ${i+1} - APR`,r.rate||""]); rows.push([section.title,`Auto Loan ${i+1} - Payment`,r.payment||""]); }); }
@@ -100,6 +100,17 @@
                   rows.push([section.title, `${label} Account ${i+1} - Balance ($)`, a.balance||""]);
                   rows.push([section.title, `${label} Account ${i+1} - Account #`, a.accountNumber||""]);
                   rows.push([section.title, `${label} Account ${i+1} - Owner`, a.owner||""]);
+                });
+              }
+            }
+            else if (field.type === "multirealestateaccount") {
+              const props = formData[field.id];
+              if (Array.isArray(props) && props.length > 0) {
+                props.forEach((p, i) => {
+                  const addr = [p.address, p.city, p.state, p.zip].filter(Boolean).join(", ");
+                  rows.push([section.title, `Other Property ${i+1} - Address`, addr]);
+                  rows.push([section.title, `Other Property ${i+1} - Type`, p.type||""]);
+                  rows.push([section.title, `Other Property ${i+1} - Value ($)`, p.value||""]);
                 });
               }
             }
@@ -238,7 +249,35 @@
       const slLoans = formData.studentLoans || [];
       slLoans.forEach((l, i) => {
         const hasFile = (uploadedFiles[l.uploadId] || []).length > 0;
-        if (!hasFile) missingFiles.push(`Student Loan Statement — ${l.servicer || "Loan " + (i + 1)}`);
+        if (l.balance && !hasFile) missingFiles.push(`Student Loan Statement — ${l.servicer || "Loan " + (i + 1)}`);
+      });
+
+      // Check auto loans
+      const autoLoans = formData.carLoans || [];
+      autoLoans.forEach((l, i) => {
+        const hasFile = (uploadedFiles[l.uploadId] || []).length > 0;
+        if (l.balance && !hasFile) missingFiles.push(`Auto Loan Statement — ${l.name || "Loan " + (i + 1)}`);
+      });
+
+      // Check credit cards
+      const ccards = formData.creditCards || [];
+      ccards.forEach((cc, i) => {
+        const hasFile = (uploadedFiles[cc.uploadId] || []).length > 0;
+        if (cc.balance && !hasFile) missingFiles.push(`Credit Card Statement — ${cc.name || "Card " + (i + 1)}`);
+      });
+
+      // Check brokerage accounts
+      const brokerageAccts = formData.brokerageAccounts || [];
+      brokerageAccts.forEach((a, i) => {
+        const hasFile = (uploadedFiles[a.uploadId] || []).length > 0;
+        if (a.balance && !hasFile) missingFiles.push(`Brokerage Statement — ${a.institution || a.type || "Account " + (i + 1)}`);
+      });
+
+      // Check retirement accounts
+      const retirementAccts = formData.retirementAccounts || [];
+      retirementAccts.forEach((a, i) => {
+        const hasFile = (uploadedFiles[a.uploadId] || []).length > 0;
+        if (a.balance && !hasFile) missingFiles.push(`Retirement Statement — ${a.institution || a.type || "Account " + (i + 1)}`);
       });
 
       // Build ClientTasks.txt
@@ -360,7 +399,6 @@ const SECTIONS = [
       { id: "selfEmployedIncome", label: "Self-Employment / Business Income ($)", type: "number" },
       { id: "rentalIncome", label: "Rental Income ($)", type: "number" },
       { id: "spouseIncomeBlock", label: "Spouse / Partner Income & Employment", type: "spouseincomeblock", showIfSpouse: true },
-      { id: "investmentIncome", label: "Investment / Dividend Income ($)", type: "number" },
       { id: "otherIncome", label: "Other Income & Source", type: "multiincome" },
     ],
   },
@@ -370,10 +408,10 @@ const SECTIONS = [
     icon: "◇",
     fields: [
       { id: "bankAccounts", label: "Checking & Savings Accounts", type: "multibankaccount" },
-      { id: "brokerageAccounts", label: "Taxable Brokerage Accounts", type: "multibrokerageaccount" },
-      { id: "retirementAccounts", label: "Retirement Accounts", type: "multiretirementaccount" },
+      { id: "brokerageAccounts", label: "Taxable Brokerage Accounts (Non-Qualified Funds)", type: "multibrokerageaccount" },
+      { id: "retirementAccounts", label: "Retirement Accounts (Qualified Funds)", type: "multiretirementaccount" },
       { id: "primaryHomeValue", label: "Primary Home Value ($)", type: "number", zillowLink: true },
-      { id: "otherRealEstate", label: "Other Real Estate Value ($)", type: "number" },
+      { id: "otherRealEstate", label: "Other Real Estate", type: "multirealestateaccount" },
       { id: "businessValue", label: "Business Ownership Value ($)", type: "number" },
       { id: "otherAssets", label: "Other Assets", type: "multiasset" },
     ],
@@ -651,11 +689,18 @@ function MultiDebtField({ value, onChange }) {
   );
 }
 
-function MultiLoanField({ value, onChange }) {
+function MultiLoanField({ value, onChange, uploadedFiles, setUploadedFiles }) {
   const rows = value && Array.isArray(value) ? value : [];
-  const addRow = () => onChange([...rows, { name: "", balance: "", rate: "", payment: "" }]);
+  const addRow = () => onChange([...rows, { name: "", balance: "", rate: "", payment: "", uploadId: "file_auto_" + Date.now() }]);
   const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
   const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
+
+  const handleFile = (uploadId, e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setUploadedFiles(prev => ({ ...prev, [uploadId]: [{ name: file.name, data: ev.target.result, type: file.type, uploadId }] }));
+    reader.readAsDataURL(file); e.target.value = "";
+  };
 
   const inputStyle = {
     background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
@@ -665,26 +710,36 @@ function MultiLoanField({ value, onChange }) {
 
   return (
     <div>
-      {rows.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 28px", gap: "8px", marginBottom: "6px" }}>
-          {["Vehicle / Lender", "Balance ($)", "APR (%)", "Mo. Payment ($)", ""].map((h, i) => (
-            <div key={i} style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", paddingLeft: "2px" }}>{h}</div>
-          ))}
-        </div>
-      )}
-      {rows.map((row, i) => (
-        <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 28px", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
-          <input type="text" placeholder="e.g. 2022 Honda CR-V" value={row.name} onChange={(e) => updateRow(i, "name", e.target.value)} style={inputStyle}
-            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
-          <input type="number" placeholder="0" value={row.balance} onChange={(e) => updateRow(i, "balance", e.target.value)} style={inputStyle}
-            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
-          <input type="number" placeholder="0.00" value={row.rate} onChange={(e) => updateRow(i, "rate", e.target.value)} style={inputStyle}
-            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
-          <input type="number" placeholder="0" value={row.payment} onChange={(e) => updateRow(i, "payment", e.target.value)} style={inputStyle}
-            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
-          <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: 0, lineHeight: 1 }}>×</button>
-        </div>
-      ))}
+      {rows.map((row, i) => {
+        const attached = (uploadedFiles && uploadedFiles[row.uploadId]) || [];
+        return (
+          <div key={i} style={{ padding: "14px 16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+              {[["Vehicle / Lender", "text", "e.g. 2022 Honda CR-V", "name"], ["Balance ($)", "number", "0", "balance"], ["APR (%)", "number", "0.00", "rate"], ["Mo. Payment ($)", "number", "0", "payment"]].map(([lbl, typ, ph, key]) => (
+                <div key={key}>
+                  <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>{lbl}</label>
+                  <input type={typ} placeholder={ph} value={row[key]} onChange={(e) => updateRow(i, key, e.target.value)} style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              {attached.length > 0 ? (
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span>📄</span><span style={{ fontSize: "12px", color: COLORS.complete }}>{attached[0].name}</span>
+                  <button onClick={() => setUploadedFiles(prev => ({ ...prev, [row.uploadId]: [] }))} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
+                </div>
+              ) : (
+                <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 14px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                  <span>⊕</span> Attach statement
+                  <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
+                </label>
+              )}
+              <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+            </div>
+          </div>
+        );
+      })}
       <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
         onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
         onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
@@ -694,11 +749,18 @@ function MultiLoanField({ value, onChange }) {
   );
 }
 
-function MultiCreditField({ value, onChange }) {
+function MultiCreditField({ value, onChange, uploadedFiles, setUploadedFiles }) {
   const rows = value && Array.isArray(value) ? value : [];
-  const addRow = () => onChange([...rows, { name: "", balance: "", limit: "", apr: "" }]);
+  const addRow = () => onChange([...rows, { name: "", balance: "", limit: "", apr: "", uploadId: "file_cc_" + Date.now() }]);
   const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
   const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
+
+  const handleFile = (uploadId, e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setUploadedFiles(prev => ({ ...prev, [uploadId]: [{ name: file.name, data: ev.target.result, type: file.type, uploadId }] }));
+    reader.readAsDataURL(file); e.target.value = "";
+  };
 
   const inputStyle = {
     background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
@@ -708,26 +770,36 @@ function MultiCreditField({ value, onChange }) {
 
   return (
     <div>
-      {rows.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 28px", gap: "8px", marginBottom: "6px" }}>
-          {["Card / Issuer", "Balance ($)", "Credit Limit ($)", "APR (%)", ""].map((h, i) => (
-            <div key={i} style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", paddingLeft: "2px" }}>{h}</div>
-          ))}
-        </div>
-      )}
-      {rows.map((row, i) => (
-        <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 28px", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
-          <input type="text" placeholder="e.g. Chase Sapphire" value={row.name} onChange={(e) => updateRow(i, "name", e.target.value)} style={inputStyle}
-            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
-          <input type="number" placeholder="0" value={row.balance} onChange={(e) => updateRow(i, "balance", e.target.value)} style={inputStyle}
-            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
-          <input type="number" placeholder="0" value={row.limit} onChange={(e) => updateRow(i, "limit", e.target.value)} style={inputStyle}
-            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
-          <input type="number" placeholder="0.00" value={row.apr} onChange={(e) => updateRow(i, "apr", e.target.value)} style={inputStyle}
-            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
-          <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: 0, lineHeight: 1 }}>×</button>
-        </div>
-      ))}
+      {rows.map((row, i) => {
+        const attached = (uploadedFiles && uploadedFiles[row.uploadId]) || [];
+        return (
+          <div key={i} style={{ padding: "14px 16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+              {[["Card / Issuer", "text", "e.g. Chase Sapphire", "name"], ["Balance ($)", "number", "0", "balance"], ["Credit Limit ($)", "number", "0", "limit"], ["APR (%)", "number", "0.00", "apr"]].map(([lbl, typ, ph, key]) => (
+                <div key={key}>
+                  <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>{lbl}</label>
+                  <input type={typ} placeholder={ph} value={row[key]} onChange={(e) => updateRow(i, key, e.target.value)} style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              {attached.length > 0 ? (
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span>📄</span><span style={{ fontSize: "12px", color: COLORS.complete }}>{attached[0].name}</span>
+                  <button onClick={() => setUploadedFiles(prev => ({ ...prev, [row.uploadId]: [] }))} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
+                </div>
+              ) : (
+                <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 14px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                  <span>⊕</span> Attach statement
+                  <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
+                </label>
+              )}
+              <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+            </div>
+          </div>
+        );
+      })}
       <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
         onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
         onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
@@ -1254,6 +1326,95 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
+    function MultiRealEstateField({ value, onChange, formData }) {
+      const rows = value && Array.isArray(value) ? value : [{ address: "", city: "", state: "", zip: "", type: "Rental Property", value: "", uploadId: "file_re_" + Date.now() }];
+
+      React.useEffect(() => {
+        if (!value || value.length === 0) onChange([{ address: "", city: "", state: "", zip: "", type: "Rental Property", value: "", uploadId: "file_re_" + Date.now() }]);
+      }, []);
+
+      const addRow = () => onChange([...rows, { address: "", city: "", state: "", zip: "", type: "Rental Property", value: "", uploadId: "file_re_" + Date.now() }]);
+      const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+      const removeRow = (i) => { if (rows.length === 1) return; onChange(rows.filter((_, idx) => idx !== i)); };
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      const RE_TYPES = ["Rental Property", "Vacation Home", "Commercial", "Land", "Investment Property", "Other"];
+
+      return (
+        <div>
+          {rows.map((row, i) => {
+            const fullAddr = [row.address, row.city, row.state, row.zip].filter(Boolean).join(", ");
+            const zillowUrl = fullAddr
+              ? `https://www.zillow.com/homes/${encodeURIComponent(fullAddr)}_rb/`
+              : "https://www.zillow.com";
+            return (
+              <div key={i} style={{ padding: "16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Street Address</label>
+                    <input type="text" placeholder="123 Main St" value={row.address} onChange={(e) => updateRow(i, "address", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Property Type</label>
+                    <select value={row.type} onChange={(e) => updateRow(i, "type", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                      {RE_TYPES.map(t => <option key={t}>{t}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>City</label>
+                    <input type="text" value={row.city} onChange={(e) => updateRow(i, "city", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>State</label>
+                    <input type="text" value={row.state} onChange={(e) => updateRow(i, "state", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>ZIP</label>
+                    <input type="text" value={row.zip} onChange={(e) => updateRow(i, "zip", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Est. Value ($)</label>
+                    <input type="number" placeholder="0" value={row.value} onChange={(e) => updateRow(i, "value", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  {fullAddr ? (
+                    <a href={zillowUrl} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: "12px", color: COLORS.accent, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      onMouseOver={(e) => e.currentTarget.style.textDecoration = "underline"}
+                      onMouseOut={(e) => e.currentTarget.style.textDecoration = "none"}>
+                      🏠 Look up on Zillow ↗
+                    </a>
+                  ) : <div />}
+                  {rows.length > 1 && (
+                    <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Property
+          </button>
+        </div>
+      );
+    }
+
     function MultiBankAccountField({ value, onChange, uploadedFiles, setUploadedFiles, spousePanel, clientName }) {
       const defaultRow = { institution: "", type: "Checking", balance: "", routing: "", accountNumber: "", owner: "", uploadId: "file_bank_" + Date.now() };
       const ownerOptions = spousePanel && (spousePanel.name || Object.keys(spousePanel).length > 0)
@@ -1659,7 +1820,61 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
+    function getMissingStatements(formData, uploadedFiles) {
+      const missing = [];
+      const hasFile = (id) => (uploadedFiles[id] || []).length > 0;
+
+      // Static fields
+      if (formData.mortgageBalance && !hasFile("file_mortgage")) missing.push({ label: "Mortgage Statement", uploadId: "file_mortgage" });
+      if (formData.heloc && !hasFile("file_heloc")) missing.push({ label: "HELOC Statement", uploadId: "file_heloc" });
+      if (formData.grossIncome && !hasFile("file_paystub")) missing.push({ label: "Pay Stub", uploadId: "file_paystub" });
+      if (formData.lifeDeathBenefit && !hasFile("file_lifeins")) missing.push({ label: "Life Insurance Policy", uploadId: "file_lifeins" });
+      if (!hasFile("file_taxreturn")) missing.push({ label: "Last Year Tax Return", uploadId: "file_taxreturn" });
+      if (formData.spouseIncomeBlock && !hasFile("file_spouse_paystub")) missing.push({ label: "Spouse/Partner Pay Stub", uploadId: "file_spouse_paystub" });
+
+      // Bank accounts
+      (formData.bankAccounts || []).forEach((a, i) => {
+        if (!hasFile(a.uploadId)) missing.push({ label: `Bank Statement — ${a.institution || a.type || "Account " + (i+1)}`, uploadId: a.uploadId });
+      });
+
+      // Student loans
+      (formData.studentLoans || []).forEach((l, i) => {
+        if (l.balance && !hasFile(l.uploadId)) missing.push({ label: `Student Loan — ${l.servicer || "Loan " + (i+1)}`, uploadId: l.uploadId });
+      });
+
+      // Auto loans
+      (formData.carLoans || []).forEach((l, i) => {
+        if (l.balance && !hasFile(l.uploadId)) missing.push({ label: `Auto Loan — ${l.name || "Loan " + (i+1)}`, uploadId: l.uploadId });
+      });
+
+      // Credit cards
+      (formData.creditCards || []).forEach((cc, i) => {
+        if (cc.balance && !hasFile(cc.uploadId)) missing.push({ label: `Credit Card — ${cc.name || "Card " + (i+1)}`, uploadId: cc.uploadId });
+      });
+
+      // Brokerage
+      (formData.brokerageAccounts || []).forEach((a, i) => {
+        if (a.balance && !hasFile(a.uploadId)) missing.push({ label: `Brokerage — ${a.institution || a.type || "Account " + (i+1)}`, uploadId: a.uploadId });
+      });
+
+      // Retirement
+      (formData.retirementAccounts || []).forEach((a, i) => {
+        if (a.balance && !hasFile(a.uploadId)) missing.push({ label: `Retirement — ${a.institution || a.type || "Account " + (i+1)}`, uploadId: a.uploadId });
+      });
+
+      return missing;
+    }
+
     function DocumentVaultField({ uploadedFiles, setUploadedFiles, formData }) {
+      const missingStatements = getMissingStatements(formData || {}, uploadedFiles);
+
+      const handleMissingFile = (uploadId, e) => {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => setUploadedFiles(prev => ({ ...prev, [uploadId]: [{ name: file.name, data: ev.target.result, type: file.type, uploadId }] }));
+        reader.readAsDataURL(file); e.target.value = "";
+      };
+
       // Map field-level upload keys to friendly labels
       const FIELD_UPLOAD_LABELS = {
         file_mortgage: "Mortgage Statement",
@@ -1680,6 +1895,10 @@ function MultiAssetField({ value, onChange }) {
       bankAccounts.forEach(a => { if (a.uploadId) bankUploadLabels[a.uploadId] = `Bank Statement — ${a.institution || a.type || "Account"}`; });
       const studentLoans = (formData && formData.studentLoans) || [];
       studentLoans.forEach(l => { if (l.uploadId) bankUploadLabels[l.uploadId] = `Student Loan Statement — ${l.servicer || "Loan"}`; });
+      const autoLoans = (formData && formData.carLoans) || [];
+      autoLoans.forEach((l, idx) => { if (l.uploadId) bankUploadLabels[l.uploadId] = `Auto Loan Statement — ${l.name || "Loan " + (idx+1)}`; });
+      const creditCards = (formData && formData.creditCards) || [];
+      creditCards.forEach((c, idx) => { if (c.uploadId) bankUploadLabels[c.uploadId] = `Credit Card Statement — ${c.name || "Card " + (idx+1)}`; });
       const brokerageAccounts = (formData && formData.brokerageAccounts) || [];
       brokerageAccounts.forEach(a => { if (a.uploadId) bankUploadLabels[a.uploadId] = `Brokerage Statement — ${a.institution || a.type || "Account"}`; });
       const retirementAccounts = (formData && formData.retirementAccounts) || [];
@@ -1733,6 +1952,31 @@ function MultiAssetField({ value, onChange }) {
 
       return (
         <div>
+          {/* Missing Statements */}
+          {missingStatements.length > 0 && (
+            <div style={{ marginBottom: "24px", padding: "16px", background: "rgba(180,60,60,0.08)", border: "1px solid rgba(180,60,60,0.3)", borderRadius: "8px" }}>
+              <div style={{ fontSize: "11px", letterSpacing: "0.12em", color: "#e07070", textTransform: "uppercase", marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <span>⚠</span> Missing Statements
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {missingStatements.map((item, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px" }}>
+                    <span style={{ fontSize: "13px", color: COLORS.muted }}>{item.label}</span>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 12px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                      <span>⊕</span> Upload
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleMissingFile(item.uploadId, e)} />
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {missingStatements.length === 0 && (
+            <div style={{ marginBottom: "20px", padding: "12px 16px", background: "rgba(74,158,107,0.08)", border: "1px solid rgba(74,158,107,0.3)", borderRadius: "8px", fontSize: "13px", color: COLORS.complete, display: "flex", alignItems: "center", gap: "8px" }}>
+              <span>✓</span> All expected statements have been uploaded.
+            </div>
+          )}
+
           {/* Field-level uploads from other sections */}
           {fieldDocs.length > 0 && (
             <div style={{ marginBottom: "24px" }}>
@@ -2061,9 +2305,9 @@ function App() {
                 ) : field.type === "multidebt" ? (
                   <MultiDebtField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
                 ) : field.type === "multiloan" ? (
-                  <MultiLoanField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
+                  <MultiLoanField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
                 ) : field.type === "multicredit" ? (
-                  <MultiCreditField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
+                  <MultiCreditField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
                 ) : field.type === "mortgagebreakdown" ? (
                   <MortgageBreakdownField
                     value={formData[field.id]}
