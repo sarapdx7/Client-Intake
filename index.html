@@ -2593,11 +2593,15 @@ function App() {
             Export the data to CSV to import into your planning software.
           </p>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
-            <button
-onClick={() => exportZip(formData, uploadedFiles)}
+            <button onClick={() => exportZip(formData, uploadedFiles)}
               style={{ padding: "14px 28px", background: COLORS.accent, color: "#0f0f14", border: "none", borderRadius: "8px", fontSize: "15px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}
             >
               ⬇ Export ZIP
+            </button>
+            <button onClick={() => exportExcel(formData, uploadedFiles)}
+              style={{ padding: "14px 28px", background: "transparent", color: COLORS.accentLight, border: `1px solid ${COLORS.accent}44`, borderRadius: "8px", fontSize: "15px", cursor: "pointer", fontFamily: "inherit" }}
+            >
+              📊 Export Excel
             </button>
             <button
               onClick={() => { setSubmitted(false); setCurrentSection(0); }}
@@ -2779,10 +2783,10 @@ onClick={() => exportZip(formData, uploadedFiles)}
             </button>
             <div style={{ display: "flex", gap: "12px" }}>
               <button
-  onClick={() => exportZip(formData, uploadedFiles)}
+  onClick={() => exportExcel(formData, uploadedFiles)}
                 style={{ padding: "12px 20px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "13px", cursor: "pointer", fontFamily: "inherit" }}
               >
-                Export Draft
+                📊 Export Excel
               </button>
               <button
                 onClick={handleNext}
