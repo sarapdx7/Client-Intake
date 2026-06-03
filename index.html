@@ -8,6 +8,7 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&display=swap" rel="stylesheet">
   <style>
@@ -83,7 +84,7 @@
       const rows = [["Section", "Field", "Value"]];
       SECTIONS.forEach((section) => {
         section.fields.forEach((field) => {
-          if (["fileonly","docupload","documentvault","multibrokerageaccount","multiretirementaccount","multirealestateaccount","multistudentloan","multibankaccount","stockplanfield","spouseincomeblock","dependentlist","spousepanel","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
+          if (["fileonly","docupload","documentvault","multibrokerageaccount","multiretirementaccount","goallist","multirealestateaccount","multistudentloan","multibankaccount","stockplanfield","spouseincomeblock","dependentlist","spousepanel","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
             if (field.type === "multiasset") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Asset ${i+1} - Name`,r.name||""]); rows.push([section.title,`Other Asset ${i+1} - Value`,r.amount||""]); }); }
             else if (field.type === "multiincome") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Income ${i+1} - Source`,r.source||""]); rows.push([section.title,`Other Income ${i+1} - Amount`,r.amount||""]); }); }
             else if (field.type === "multiloan") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Auto Loan ${i+1} - Lender`,r.name||""]); rows.push([section.title,`Auto Loan ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Auto Loan ${i+1} - APR`,r.rate||""]); rows.push([section.title,`Auto Loan ${i+1} - Payment`,r.payment||""]); }); }
@@ -100,6 +101,15 @@
                   rows.push([section.title, `${label} Account ${i+1} - Balance ($)`, a.balance||""]);
                   rows.push([section.title, `${label} Account ${i+1} - Account #`, a.accountNumber||""]);
                   rows.push([section.title, `${label} Account ${i+1} - Owner`, a.owner||""]);
+                });
+              }
+            }
+            else if (field.type === "goallist") {
+              const goals = formData[field.id];
+              if (Array.isArray(goals) && goals.length > 0) {
+                goals.forEach((g, i) => {
+                  rows.push([section.title, `Goal ${i+1}`, g.goal||""]);
+                  rows.push([section.title, `Goal ${i+1} - Priority`, g.priority||""]);
                 });
               }
             }
@@ -197,20 +207,69 @@
       zip.file(`${clientName}_intake.csv`, csv);
       zip.file(`${clientName}_session.json`, JSON.stringify({ version:1, savedAt: new Date().toISOString(), formData }, null, 2));
 
-      // Add vault docs to zip
-      const vaultDocs = uploadedFiles["doc_vault"] || [];
-      vaultDocs.forEach(doc => {
-        const folder = (doc.type || "Documents").replace(/[^a-zA-Z0-9]/g, "_");
+      // Build a rich folder map with per-account named folders
+      const folderMap = {
+        file_mortgage: "Debts/Mortgage",
+        file_heloc: "Debts/HELOC",
+        file_paystub: "Income/Pay_Stubs",
+        file_spouse_paystub: "Income/Spouse_Pay_Stub",
+        file_taxreturn: "Tax/Tax_Return",
+        file_lifeins: "Insurance/Life_Insurance",
+        file_estate: "Estate/Estate_Documents",
+        doc_catchall: "Supporting_Documents",
+      };
+
+      // Bank accounts — per account folder
+      (formData.bankAccounts || []).forEach(a => {
+        if (a.uploadId) folderMap[a.uploadId] = `Banking/${(a.institution || a.type || "Account").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Student loans — per loan folder
+      (formData.studentLoans || []).forEach(l => {
+        if (l.uploadId) folderMap[l.uploadId] = `Debts/Student_Loans/${(l.servicer || "Loan").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Auto loans — per loan folder
+      (formData.carLoans || []).forEach(l => {
+        if (l.uploadId) folderMap[l.uploadId] = `Debts/Auto_Loans/${(l.name || "Loan").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Credit cards — per card folder
+      (formData.creditCards || []).forEach(cc => {
+        if (cc.uploadId) folderMap[cc.uploadId] = `Debts/Credit_Cards/${(cc.name || "Card").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Brokerage accounts — per account folder
+      (formData.brokerageAccounts || []).forEach(a => {
+        if (a.uploadId) folderMap[a.uploadId] = `Investments/Brokerage/${(a.institution || a.type || "Account").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Retirement accounts — per account folder
+      (formData.retirementAccounts || []).forEach(a => {
+        if (a.uploadId) folderMap[a.uploadId] = `Investments/Retirement/${(a.type || "Account").replace(/[^a-zA-Z0-9]/g, "_")}_${(a.institution || "").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Vault docs — by document type
+      const vaultDocs2 = uploadedFiles["doc_vault"] || [];
+      vaultDocs2.forEach(doc => {
+        const folder = `Supporting_Documents/${(doc.type || "Other").replace(/[^a-zA-Z0-9]/g, "_")}`;
         if (doc.file) {
           const b64 = doc.file.data.split(",")[1];
           zip.folder(folder).file(doc.file.name, b64, { base64: true });
         }
       });
 
-      const folderMap = { file_mortgage:"Mortgage", file_studentloan:"Student_Loans", file_paystub:"Pay_Stubs", file_taxreturn:"Tax_Returns", file_lifeins:"Life_Insurance", file_estate:"Estate_Docs", file_bank:"Bank_Statements", file_brokerage:"Brokerage_Statements", doc_catchall:"Supporting_Documents" };
+      // Write all other uploaded files into their named folders
       Object.entries(uploadedFiles).forEach(([id, files]) => {
-        const folder = folderMap[id] || "Documents";
-        files.forEach(f => { const b64 = f.data.split(",")[1]; zip.folder(folder).file(f.name, b64, { base64: true }); });
+        if (id === "doc_vault") return; // handled above
+        if (!Array.isArray(files) || files.length === 0) return;
+        const folder = folderMap[id] || `Documents/${id}`;
+        files.forEach(f => {
+          if (f && f.data) {
+            const b64 = f.data.split(",")[1];
+            zip.folder(folder).file(f.name, b64, { base64: true });
+          }
+        });
       });
 
       // ── Build ClientTasks.txt ──────────────────────────────────
@@ -324,6 +383,270 @@
       URL.revokeObjectURL(url);
     }
 
+
+    function exportExcel(formData, uploadedFiles) {
+      const wb = XLSX.utils.book_new();
+      const clientName = [formData.firstName, formData.lastName].filter(Boolean).join(" ") || "Client";
+
+      const addSheet = (name, rows) => {
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        // Style header row
+        const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+        ws["!cols"] = [{ wch: 35 }, { wch: 40 }, { wch: 20 }];
+        XLSX.utils.book_append_sheet(wb, ws, name);
+      };
+
+      const hdr = (label) => [[label], ["Field", "Value"]];
+
+      // ── 1. Personal & Household ──────────────────────────────
+      const personal = [
+        ...hdr("Personal & Household"),
+        ["First Name", formData.firstName||""],
+        ["Last Name", formData.lastName||""],
+        ["Date of Birth", formData.dob||""],
+        ["Email", formData.email||""],
+        ["Phone", formData.phone||""],
+        ["Street Address", formData.address||""],
+        ["City", formData.city||""],
+        ["State", formData.state||""],
+        ["ZIP", formData.zip||""],
+        ["Employment Status", formData.employmentStatus||""],
+        ["Marital Status", formData.maritalStatus||""],
+        [],
+      ];
+      const spouse = formData.spousePanel;
+      if (spouse) {
+        personal.push(["--- Spouse / Partner ---", ""]);
+        personal.push(["Name", spouse.name||""]);
+        personal.push(["DOB", spouse.dob||""]);
+        personal.push(["Email", spouse.email||""]);
+        personal.push(["Phone", spouse.phone||""]);
+        personal.push([]);
+      }
+      const deps = formData.dependents || [];
+      if (deps.length > 0) {
+        personal.push(["--- Dependents ---", ""]);
+        deps.forEach((d, i) => personal.push([`Dependent ${i+1}`, `${d.name||""} (Age: ${d.age||""})`]));
+      }
+      addSheet("Personal", personal);
+
+      // ── 2. Income & Employment ───────────────────────────────
+      const income = [
+        ...hdr("Income & Employment"),
+        ["Employer", formData.employer||""],
+        ["Occupation", formData.occupation||""],
+        ["Annual Gross Income", formData.grossIncome||""],
+        ["Annual Bonus / Commission", formData.bonusIncome||""],
+        ["Self-Employment Income", formData.selfEmployedIncome||""],
+        ["Rental Income", formData.rentalIncome||""],
+        [],
+      ];
+      const otherIncome = formData.otherIncome || [];
+      if (otherIncome.length > 0) {
+        income.push(["--- Other Income ---", ""]);
+        otherIncome.forEach((r, i) => income.push([`Source ${i+1}: ${r.source||""}`, r.amount||""]));
+        income.push([]);
+      }
+      const stockPlans = formData.stockPlans || [];
+      if (stockPlans.length > 0) {
+        income.push(["--- Employer Stock Plans ---", ""]);
+        income.push(["Plan Type", "Company", "Grant ($)", "Vested ($)", "Unvested ($)", "Sell Policy"]);
+        stockPlans.forEach(p => income.push([p.type||"", p.company||"", p.grantAmount||"", p.vestedAmount||"", p.unvestedAmount||"", p.sellAtVest||""]));
+        income.push([]);
+      }
+      const spouseBlock = formData.spouseIncomeBlock;
+      if (spouseBlock) {
+        const spouseName = (formData.spousePanel && formData.spousePanel.name) || "Spouse/Partner";
+        income.push([`--- ${spouseName} Income ---`, ""]);
+        income.push(["Employment Status", spouseBlock.employmentStatus||""]);
+        income.push(["Employer", spouseBlock.employer||""]);
+        income.push(["Annual Gross Income", spouseBlock.grossIncome||""]);
+        income.push(["Annual Bonus", spouseBlock.bonusIncome||""]);
+        income.push(["Self-Employment Income", spouseBlock.selfEmployedIncome||""]);
+        const spouseStocks = spouseBlock.stockPlans || [];
+        if (spouseStocks.length > 0) {
+          income.push([]);
+          income.push([`${spouseName} Stock Plans`, ""]);
+          income.push(["Plan Type", "Company", "Grant ($)", "Vested ($)", "Unvested ($)"]);
+          spouseStocks.forEach(p => income.push([p.type||"", p.company||"", p.grantAmount||"", p.vestedAmount||"", p.unvestedAmount||""]));
+        }
+      }
+      addSheet("Income", income);
+
+      // ── 3. Assets & Investments ──────────────────────────────
+      const assets = [...hdr("Assets & Investments")];
+
+      const bankAccts = formData.bankAccounts || [];
+      if (bankAccts.length > 0) {
+        assets.push(["--- Checking & Savings ---", ""]);
+        assets.push(["Institution", "Type", "Balance ($)", "Routing #", "Account #", "Owner"]);
+        bankAccts.forEach(a => assets.push([a.institution||"", a.type||"", a.balance||"", a.routing||"", a.accountNumber||"", a.owner||""]));
+        assets.push([]);
+      }
+
+      const brokerageAccts = formData.brokerageAccounts || [];
+      if (brokerageAccts.length > 0) {
+        assets.push(["--- Taxable Brokerage (Non-Qualified) ---", ""]);
+        assets.push(["Institution", "Type", "Balance ($)", "Account #", "Owner"]);
+        brokerageAccts.forEach(a => assets.push([a.institution||"", a.type||"", a.balance||"", a.accountNumber||"", a.owner||""]));
+        assets.push([]);
+      }
+
+      const retireAccts = formData.retirementAccounts || [];
+      if (retireAccts.length > 0) {
+        assets.push(["--- Retirement Accounts (Qualified) ---", ""]);
+        assets.push(["Institution", "Type", "Balance ($)", "Account #", "Owner"]);
+        retireAccts.forEach(a => assets.push([a.institution||"", a.type||"", a.balance||"", a.accountNumber||"", a.owner||""]));
+        assets.push([]);
+      }
+
+      assets.push(["Primary Home Value ($)", formData.primaryHomeValue||""]);
+      const reProps = formData.otherRealEstate || [];
+      if (reProps.length > 0) {
+        assets.push([]);
+        assets.push(["--- Other Real Estate ---", ""]);
+        assets.push(["Address", "Type", "Est. Value ($)"]);
+        reProps.forEach(p => assets.push([[p.address, p.city, p.state, p.zip].filter(Boolean).join(", "), p.type||"", p.value||""]));
+      }
+      assets.push(["Business Ownership Value ($)", formData.businessValue||""]);
+
+      const otherAssets = formData.otherAssets || [];
+      if (otherAssets.length > 0) {
+        assets.push([]);
+        assets.push(["--- Other Assets ---", ""]);
+        otherAssets.forEach(a => assets.push([a.name||"", a.amount||""]));
+      }
+      addSheet("Assets", assets);
+
+      // ── 4. Debts & Liabilities ───────────────────────────────
+      const debts = [...hdr("Debts & Liabilities")];
+      debts.push(["Mortgage Balance ($)", formData.mortgageBalance||""]);
+      debts.push(["Mortgage Rate (%)", formData.mortgageRate||""]);
+      debts.push(["HELOC Balance ($)", formData.heloc||""]);
+      debts.push([]);
+
+      const autoLoans = formData.carLoans || [];
+      if (autoLoans.length > 0) {
+        debts.push(["--- Auto Loans ---", ""]);
+        debts.push(["Vehicle / Lender", "Balance ($)", "APR (%)", "Mo. Payment ($)"]);
+        autoLoans.forEach(l => debts.push([l.name||"", l.balance||"", l.rate||"", l.payment||""]));
+        debts.push([]);
+      }
+
+      const slLoans = formData.studentLoans || [];
+      if (slLoans.length > 0) {
+        debts.push(["--- Student Loans ---", ""]);
+        debts.push(["Servicer", "Type", "Balance ($)", "Rate (%)", "Mo. Payment ($)"]);
+        slLoans.forEach(l => debts.push([l.servicer||"", l.type||"", l.balance||"", l.rate||"", l.payment||""]));
+        debts.push([]);
+      }
+
+      const ccards = formData.creditCards || [];
+      if (ccards.length > 0) {
+        debts.push(["--- Credit Cards ---", ""]);
+        debts.push(["Card / Issuer", "Balance ($)", "Credit Limit ($)", "APR (%)"]);
+        ccards.forEach(cc => debts.push([cc.name||"", cc.balance||"", cc.limit||"", cc.apr||""]));
+        debts.push([]);
+      }
+
+      const otherDebts = formData.otherDebt || [];
+      if (otherDebts.length > 0) {
+        debts.push(["--- Other Debt ---", ""]);
+        debts.push(["Description", "Balance ($)", "Rate (%)", "Mo. Payment ($)"]);
+        otherDebts.forEach(d => debts.push([d.name||"", d.balance||"", d.rate||"", d.payment||""]));
+      }
+      addSheet("Debts", debts);
+
+      // ── 5. Expenses ──────────────────────────────────────────
+      const expenses = [...hdr("Expenses & Budget")];
+      ["expensesBills", "expensesFrequent", "expensesNonMonthly"].forEach(id => {
+        const section = SECTIONS.find(s => s.fields.some(f => f.id === id));
+        const field = section && section.fields.find(f => f.id === id);
+        const rows2 = formData[id] || (field && field.defaultRows) || [];
+        if (rows2.length > 0) {
+          const label = field ? field.label : id;
+          expenses.push([`--- ${label} ---`, ""]);
+          expenses.push(["Category", "Amount ($)"]);
+          rows2.forEach(r => { if (r.category||r.amount) expenses.push([r.category||"", r.amount||""]); });
+          expenses.push([]);
+        }
+      });
+      addSheet("Expenses", expenses);
+
+      // ── 6. Insurance ─────────────────────────────────────────
+      const insurance = [
+        ...hdr("Insurance"),
+        ["Health Insurance Type", formData.healthInsurance||""],
+        ["Health Deductible ($)", formData.healthDeductible||""],
+        ["Life Insurance Type", formData.lifeInsuranceType||""],
+        ["Life Insurance Death Benefit ($)", formData.lifeDeathBenefit||""],
+        ["Spouse Life Insurance ($)", formData.spouseLifeInsurance||""],
+        ["Disability Insurance", formData.disabilityInsurance||""],
+        ["Disability Monthly Benefit ($)", formData.disabilityBenefit||""],
+        ["Long-Term Care Insurance", formData.longTermCare||""],
+        ["Umbrella Policy", formData.umbrellaPolicy||""],
+        ["Umbrella Limit ($)", formData.umbrellaLimit||""],
+      ];
+      addSheet("Insurance", insurance);
+
+      // ── 7. Estate Planning ───────────────────────────────────
+      const estate = [
+        ...hdr("Estate Planning"),
+        ["Has Will", formData.hasWill||""],
+        ["Has Trust", formData.hasTrust||""],
+        ["Financial POA", formData.hasPOA||""],
+        ["Healthcare Directive", formData.hasHealthcareDirective||""],
+        ["Beneficiaries Reviewed", formData.beneficiariesReviewed||""],
+        ["Estate Value ($)", formData.estateValue||""],
+        ["Charitable Intent", formData.charitableIntent||""],
+        ["Notes", formData.estateNotes||""],
+      ];
+      addSheet("Estate", estate);
+
+      // ── 8. Taxes ─────────────────────────────────────────────
+      const taxes = [
+        ...hdr("Tax Situation"),
+        ["Filing Status", formData.filingStatus||""],
+        ["Federal Bracket", formData.federalBracket||""],
+        ["State of Residence", formData.stateOfResidence||""],
+        ["Federal Taxes Owed Last Year ($)", formData.lastYearTaxes||""],
+        ["AMT Exposure", formData.amtExposure||""],
+        ["Capital Gains Activity", formData.capitalGainsActivity||""],
+        ["Tax-Loss Harvesting", formData.taxLossHarvesting||""],
+        ["Deferred Comp Plan", formData.deferredComp||""],
+        ["Deferred Comp Balance ($)", formData.deferredCompBalance||""],
+        ["Notes", formData.taxNotes||""],
+      ];
+      addSheet("Taxes", taxes);
+
+      // ── 9. Goals ─────────────────────────────────────────────
+      const goals = [...hdr("Financial Goals")];
+      goals.push(["Target Retirement Age", formData.retirementAge||""]);
+      goals.push(["Desired Annual Retirement Income ($)", formData.retirementIncome||""]);
+      goals.push(["Retirement Lifestyle Vision", formData.retirementStyle||""]);
+      goals.push(["Risk Tolerance", formData.riskTolerance||""]);
+      goals.push(["Biggest Concern", formData.biggestConcern||""]);
+      goals.push(["Anticipated Large Purchases", formData.bigPurchases||""]);
+      goals.push([]);
+      const topGoals = formData.topGoals || [];
+      if (topGoals.length > 0) {
+        goals.push(["--- Top Goals ---", ""]);
+        goals.push(["Goal", "Priority"]);
+        topGoals.forEach(g => goals.push([g.goal||"", g.priority||""]));
+      }
+      addSheet("Goals", goals);
+
+      // ── Write file ───────────────────────────────────────────
+      const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([wbout], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${clientName.replace(/ /g, "_")}_financial_intake.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
     function exportSession(formData, completed) {
       const session = { version: 1, savedAt: new Date().toISOString(), formData, completed: Array.from(completed) };
       const blob = new Blob([JSON.stringify(session, null, 2)], { type: "application/json" });
@@ -356,10 +679,8 @@ const SECTIONS = [
     fields: [
       { id: "retirementAge", label: "Target Retirement Age", type: "number" },
       { id: "retirementIncome", label: "Desired Annual Retirement Income ($)", type: "number" },
-      { id: "retirementStyle", label: "Retirement Lifestyle Vision", type: "textarea", placeholder: "Travel, downsize, relocate, support family..." },
-      { id: "topGoal1", label: "Top Financial Goal #1", type: "text" },
-      { id: "topGoal2", label: "Top Financial Goal #2", type: "text" },
-      { id: "topGoal3", label: "Top Financial Goal #3", type: "text" },
+      { id: "retirementStyle", label: "Retirement Lifestyle Vision", type: "textarea", placeholder: "Travel, downsize, relocate, support family, divorce planning..." },
+      { id: "topGoals", label: "Top Financial Goals", type: "goallist" },
       { id: "bigPurchases", label: "Anticipated Large Purchases (next 5 yrs)", type: "textarea", placeholder: "Home, vacation property, business, vehicles..." },
       { id: "riskTolerance", label: "Investment Risk Tolerance", type: "select", options: ["Conservative", "Moderately Conservative", "Moderate", "Moderately Aggressive", "Aggressive"] },
       { id: "biggestConcern", label: "Biggest Financial Concern", type: "textarea" },
@@ -1820,6 +2141,55 @@ function MultiAssetField({ value, onChange }) {
       );
     }
 
+    function GoalListField({ value, onChange }) {
+      const rows = value && Array.isArray(value) ? value : [{ goal: "", priority: "High" }];
+
+      React.useEffect(() => {
+        if (!value || value.length === 0) onChange([{ goal: "", priority: "High" }]);
+      }, []);
+
+      const addRow = () => onChange([...rows, { goal: "", priority: "High" }]);
+      const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+      const removeRow = (i) => { if (rows.length === 1) return; onChange(rows.filter((_, idx) => idx !== i)); };
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      return (
+        <div>
+          {rows.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr 28px", gap: "8px", marginBottom: "6px" }}>
+              {["Goal", "Priority", ""].map((h, i) => (
+                <div key={i} style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", paddingLeft: "2px" }}>{h}</div>
+              ))}
+            </div>
+          )}
+          {rows.map((row, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "3fr 1fr 28px", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
+              <input type="text" placeholder={`Goal #${i + 1}`} value={row.goal} onChange={(e) => updateRow(i, "goal", e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+              <select value={row.priority} onChange={(e) => updateRow(i, "priority", e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                <option>High</option>
+                <option>Medium</option>
+                <option>Low</option>
+              </select>
+              <button onClick={() => removeRow(i)} disabled={rows.length === 1}
+                style={{ background: "transparent", border: "none", color: rows.length === 1 ? COLORS.border : COLORS.muted, cursor: rows.length === 1 ? "default" : "pointer", fontSize: "18px", padding: 0, lineHeight: 1 }}>×</button>
+            </div>
+          ))}
+          <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Goal
+          </button>
+        </div>
+      );
+    }
+
     function getMissingStatements(formData, uploadedFiles) {
       const missing = [];
       const hasFile = (id) => (uploadedFiles[id] || []).length > 0;
@@ -2160,7 +2530,7 @@ function App() {
           </p>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
             <button
-              onClick={() => exportZip(formData, uploadedFiles)}
+onClick={() => exportZip(formData, uploadedFiles)}
               style={{ padding: "14px 28px", background: COLORS.accent, color: "#0f0f14", border: "none", borderRadius: "8px", fontSize: "15px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}
             >
               ⬇ Export ZIP
@@ -2277,6 +2647,10 @@ function App() {
                   <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={RETIREMENT_TYPES} addLabel="Add Retirement Account" uploadPrefix="file_retirement" showCheckboxes={true} spousePanel={formData.spousePanel} clientName={[formData.firstName, formData.lastName].filter(Boolean).join(" ")} />
                 ) : field.type === "multistudentloan" ? (
                   <MultiStudentLoanField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                ) : field.type === "goallist" ? (
+                  <GoalListField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
+                ) : field.type === "multirealestateaccount" ? (
+                  <MultiRealEstateField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} formData={formData} />
                 ) : field.type === "multibankaccount" ? (
                   <MultiBankAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} spousePanel={formData.spousePanel} clientName={[formData.firstName, formData.lastName].filter(Boolean).join(" ")} />
                 ) : field.type === "dependentlist" ? (
@@ -2339,7 +2713,7 @@ function App() {
             </button>
             <div style={{ display: "flex", gap: "12px" }}>
               <button
-                onClick={() => exportZip(formData, uploadedFiles)}
+  onClick={() => exportZip(formData, uploadedFiles)}
                 style={{ padding: "12px 20px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "13px", cursor: "pointer", fontFamily: "inherit" }}
               >
                 Export Draft
