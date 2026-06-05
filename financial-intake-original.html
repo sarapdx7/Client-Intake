@@ -1,0 +1,2820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Client Financial Intake</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0f0f14; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f0f14; }
+    ::-webkit-scrollbar-thumb { background: #2a2a38; border-radius: 3px; }
+    select option { background: #1e1e28; color: #e8e6e0; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+
+
+    const DB_NAME = "FinancialIntake";
+    const DB_VERSION = 1;
+    const STORE_NAME = "session";
+    const SESSION_KEY = "current";
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => e.target.result.createObjectStore(STORE_NAME);
+        req.onsuccess = (e) => resolve(e.target.result);
+        req.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    async function saveSessionToDB(data) {
+      try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.objectStore(STORE_NAME).put({ ...data, savedAt: new Date().toISOString() }, SESSION_KEY);
+        db.close();
+      } catch(e) { console.warn("Save failed", e); }
+    }
+
+    async function loadSessionFromDB() {
+      try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const result = await new Promise((res, rej) => {
+          const req = tx.objectStore(STORE_NAME).get(SESSION_KEY);
+          req.onsuccess = () => res(req.result);
+          req.onerror = rej;
+        });
+        db.close();
+        return result || null;
+      } catch(e) { return null; }
+    }
+
+    async function clearSessionFromDB() {
+      try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.objectStore(STORE_NAME).delete(SESSION_KEY);
+        db.close();
+      } catch(e) {}
+    }
+
+
+    async function exportZip(formData, uploadedFiles) {
+      const zip = new JSZip();
+      const clientName = [formData.firstName, formData.lastName].filter(Boolean).join("_") || "client";
+
+      // Build CSV
+      const rows = [["Section", "Field", "Value"]];
+      SECTIONS.forEach((section) => {
+        section.fields.forEach((field) => {
+          if (["fileonly","docupload","documentvault","multibrokerageaccount","multiretirementaccount","clientincomecard","goallist","multirealestateaccount","multistudentloan","multibankaccount","stockplanfield","spouseincomeblock","dependentlist","spousepanel","mortgagebreakdown","multiasset","multiincome","multiloan","multicredit","multidebt","expensegroup"].includes(field.type)) {
+            if (field.type === "multiasset") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Asset ${i+1} - Name`,r.name||""]); rows.push([section.title,`Other Asset ${i+1} - Value`,r.amount||""]); }); }
+            else if (field.type === "multiincome") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Other Income ${i+1} - Source`,r.source||""]); rows.push([section.title,`Other Income ${i+1} - Amount`,r.amount||""]); }); }
+            else if (field.type === "multiloan") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Auto Loan ${i+1} - Lender`,r.name||""]); rows.push([section.title,`Auto Loan ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Auto Loan ${i+1} - APR`,r.rate||""]); rows.push([section.title,`Auto Loan ${i+1} - Payment`,r.payment||""]); }); }
+            else if (field.type === "multicredit") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Card ${i+1} - Name`,r.name||""]); rows.push([section.title,`Card ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Card ${i+1} - Limit`,r.limit||""]); rows.push([section.title,`Card ${i+1} - APR`,r.apr||""]); }); }
+            else if (field.type === "multidebt") { const a = formData[field.id]; if (Array.isArray(a)) a.forEach((r,i) => { rows.push([section.title,`Debt ${i+1} - Description`,r.name||""]); rows.push([section.title,`Debt ${i+1} - Balance`,r.balance||""]); rows.push([section.title,`Debt ${i+1} - Rate`,r.rate||""]); rows.push([section.title,`Debt ${i+1} - Payment`,r.payment||""]); }); }
+            else if (field.type === "expensegroup") { const a = formData[field.id] || field.defaultRows || []; a.forEach(r => { if (r.category||r.amount) rows.push([section.title+" - "+field.label, r.category||"", r.amount||""]); }); }
+            else if (field.type === "multibrokerageaccount" || field.type === "multiretirementaccount") {
+              const accts = formData[field.id];
+              const label = field.type === "multibrokerageaccount" ? "Brokerage" : "Retirement";
+              if (Array.isArray(accts) && accts.length > 0) {
+                accts.forEach((a, i) => {
+                  rows.push([section.title, `${label} Account ${i+1} - Institution`, a.institution||""]);
+                  rows.push([section.title, `${label} Account ${i+1} - Type`, a.type||""]);
+                  rows.push([section.title, `${label} Account ${i+1} - Balance ($)`, a.balance||""]);
+                  rows.push([section.title, `${label} Account ${i+1} - Account #`, a.accountNumber||""]);
+                  rows.push([section.title, `${label} Account ${i+1} - Owner`, a.owner||""]);
+                });
+              }
+            }
+            else if (field.type === "clientincomecard") {
+              const d = formData[field.id] || {};
+              rows.push([section.title, "Employer / Business Name", d.employer||""]);
+              rows.push([section.title, "Occupation / Title", d.occupation||""]);
+              rows.push([section.title, "Annual Gross Income ($)", d.grossIncome||""]);
+              rows.push([section.title, "Annual Bonus / Commission ($)", d.bonusIncome||""]);
+              rows.push([section.title, "Self-Employment Income ($)", d.selfEmployedIncome||""]);
+              rows.push([section.title, "Rental Income ($)", d.rentalIncome||""]);
+              const sp = d.stockPlans || [];
+              sp.forEach((p, i) => {
+                rows.push([section.title, `Stock Plan ${i+1} - Type`, p.type||""]);
+                rows.push([section.title, `Stock Plan ${i+1} - Company`, p.company||""]);
+                rows.push([section.title, `Stock Plan ${i+1} - Grant ($)`, p.grantAmount||""]);
+                rows.push([section.title, `Stock Plan ${i+1} - Vested ($)`, p.vestedAmount||""]);
+                rows.push([section.title, `Stock Plan ${i+1} - Unvested ($)`, p.unvestedAmount||""]);
+              });
+            }
+            else if (field.type === "goallist") {
+              const goals = formData[field.id];
+              if (Array.isArray(goals) && goals.length > 0) {
+                goals.forEach((g, i) => {
+                  rows.push([section.title, `Goal ${i+1}`, g.goal||""]);
+                  rows.push([section.title, `Goal ${i+1} - Priority`, g.priority||""]);
+                });
+              }
+            }
+            else if (field.type === "multirealestateaccount") {
+              const props = formData[field.id];
+              if (Array.isArray(props) && props.length > 0) {
+                props.forEach((p, i) => {
+                  const addr = [p.address, p.city, p.state, p.zip].filter(Boolean).join(", ");
+                  rows.push([section.title, `Other Property ${i+1} - Address`, addr]);
+                  rows.push([section.title, `Other Property ${i+1} - Type`, p.type||""]);
+                  rows.push([section.title, `Other Property ${i+1} - Value ($)`, p.value||""]);
+                });
+              }
+            }
+            else if (field.type === "multistudentloan") {
+              const loans = formData[field.id];
+              if (Array.isArray(loans) && loans.length > 0) {
+                loans.forEach((l, i) => {
+                  rows.push([section.title, `Student Loan ${i+1} - Servicer`, l.servicer||""]);
+                  rows.push([section.title, `Student Loan ${i+1} - Type`, l.type||""]);
+                  rows.push([section.title, `Student Loan ${i+1} - Balance ($)`, l.balance||""]);
+                  rows.push([section.title, `Student Loan ${i+1} - Rate (%)`, l.rate||""]);
+                  rows.push([section.title, `Student Loan ${i+1} - Payment ($)`, l.payment||""]);
+                });
+              }
+            }
+            else if (field.type === "multibankaccount") {
+              const accts = formData[field.id];
+              if (Array.isArray(accts) && accts.length > 0) {
+                accts.forEach((a, i) => {
+                  rows.push([section.title, `Bank Account ${i+1} - Institution`, a.institution||""]);
+                  rows.push([section.title, `Bank Account ${i+1} - Type`, a.type||""]);
+                  rows.push([section.title, `Bank Account ${i+1} - Balance ($)`, a.balance||""]);
+                  rows.push([section.title, `Bank Account ${i+1} - Routing #`, a.routing||""]);
+                  rows.push([section.title, `Bank Account ${i+1} - Account #`, a.accountNumber||""]);
+                  rows.push([section.title, `Bank Account ${i+1} - Owner`, a.owner||""]);
+                });
+              }
+            }
+            else if (field.type === "dependentlist") {
+              const deps = formData[field.id];
+              if (Array.isArray(deps) && deps.length > 0) {
+                deps.forEach((d, i) => {
+                  rows.push([section.title, `Dependent ${i+1} - Name`, d.name||""]);
+                  rows.push([section.title, `Dependent ${i+1} - Age`, d.age||""]);
+                });
+              }
+            }
+            else if (field.type === "stockplanfield") {
+              const plans = formData[field.id];
+              if (Array.isArray(plans) && plans.length > 0) {
+                plans.forEach((p, i) => {
+                  rows.push([section.title, `${field.label} ${i+1} - Type`, p.type||""]);
+                  rows.push([section.title, `${field.label} ${i+1} - Company`, p.company||""]);
+                  rows.push([section.title, `${field.label} ${i+1} - Grant ($)`, p.grantAmount||""]);
+                  rows.push([section.title, `${field.label} ${i+1} - Vested ($)`, p.vestedAmount||""]);
+                  rows.push([section.title, `${field.label} ${i+1} - Unvested ($)`, p.unvestedAmount||""]);
+                  rows.push([section.title, `${field.label} ${i+1} - Sell Policy`, p.sellAtVest||""]);
+                  rows.push([section.title, `${field.label} ${i+1} - Notes`, p.notes||""]);
+                });
+              }
+            }
+            else if (field.type === "spouseincomeblock") {
+              const s = formData[field.id];
+              if (s) {
+                const spouseName = (formData.spousePanel && formData.spousePanel.name) || "Spouse/Partner";
+                rows.push([section.title, `${spouseName} - Employment Status`, s.employmentStatus||""]);
+                rows.push([section.title, `${spouseName} - Employer`, s.employer||""]);
+                rows.push([section.title, `${spouseName} - Annual Gross Income ($)`, s.grossIncome||""]);
+                rows.push([section.title, `${spouseName} - Bonus / Commission ($)`, s.bonusIncome||""]);
+                rows.push([section.title, `${spouseName} - Self-Employment Income ($)`, s.selfEmployedIncome||""]);
+                rows.push([section.title, `${spouseName} - Other Income`, s.otherIncome||""]);
+              }
+            }
+            else if (field.type === "spousepanel") {
+              const s = formData[field.id];
+              if (s) {
+                rows.push([section.title, "Spouse/Partner - Name", s.name||""]);
+                rows.push([section.title, "Spouse/Partner - DOB", s.dob||""]);
+                rows.push([section.title, "Spouse/Partner - Email", s.email||""]);
+                rows.push([section.title, "Spouse/Partner - Phone", s.phone||""]);
+                rows.push([section.title, "Spouse/Partner - Employment", s.employmentStatus||""]);
+                rows.push([section.title, "Spouse/Partner - Employer", s.employer||""]);
+                rows.push([section.title, "Spouse/Partner - Annual Income ($)", s.income||""]);
+              }
+            }
+            else if (field.type === "mortgagebreakdown") { const bd = formData[field.id]||{}; Object.entries({principal:"P&I",propertyTax:"Property Tax",homeInsurance:"Home Insurance",pmi:"PMI",hoaFee:"HOA",floodInsurance:"Flood Insurance",melloRoos:"Mello-Roos",other:"Other"}).forEach(([k,l]) => { if (bd[k]) rows.push([section.title, "Mortgage - "+l, bd[k]]); }); }
+          } else {
+            const val = formData[field.id] || "";
+            rows.push([section.title, field.label, String(val)]);
+          }
+        });
+      });
+      const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+      zip.file(`${clientName}_intake.csv`, csv);
+      zip.file(`${clientName}_session.json`, JSON.stringify({ version:1, savedAt: new Date().toISOString(), formData }, null, 2));
+
+      // Add Excel file to ZIP
+      const wb = buildWorkbook(formData);
+      const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      zip.file(`${clientName}_financial_intake.xlsx`, wbout);
+
+      // Build a rich folder map with per-account named folders
+      const folderMap = {
+        file_mortgage: "Debts/Mortgage",
+        file_heloc: "Debts/HELOC",
+        file_paystub: "Income/Pay_Stubs",
+        file_spouse_paystub: "Income/Spouse_Pay_Stub",
+        file_taxreturn: "Tax/Tax_Return",
+        file_lifeins: "Insurance/Life_Insurance",
+        file_estate: "Estate/Estate_Documents",
+        doc_catchall: "Supporting_Documents",
+      };
+
+      // Bank accounts — per account folder
+      (formData.bankAccounts || []).forEach(a => {
+        if (a.uploadId) folderMap[a.uploadId] = `Banking/${(a.institution || a.type || "Account").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Student loans — per loan folder
+      (formData.studentLoans || []).forEach(l => {
+        if (l.uploadId) folderMap[l.uploadId] = `Debts/Student_Loans/${(l.servicer || "Loan").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Auto loans — per loan folder
+      (formData.carLoans || []).forEach(l => {
+        if (l.uploadId) folderMap[l.uploadId] = `Debts/Auto_Loans/${(l.name || "Loan").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Credit cards — per card folder
+      (formData.creditCards || []).forEach(cc => {
+        if (cc.uploadId) folderMap[cc.uploadId] = `Debts/Credit_Cards/${(cc.name || "Card").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Brokerage accounts — per account folder
+      (formData.brokerageAccounts || []).forEach(a => {
+        if (a.uploadId) folderMap[a.uploadId] = `Investments/Brokerage/${(a.institution || a.type || "Account").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Retirement accounts — per account folder
+      (formData.retirementAccounts || []).forEach(a => {
+        if (a.uploadId) folderMap[a.uploadId] = `Investments/Retirement/${(a.type || "Account").replace(/[^a-zA-Z0-9]/g, "_")}_${(a.institution || "").replace(/[^a-zA-Z0-9]/g, "_")}`;
+      });
+
+      // Vault docs — by document type
+      const vaultDocs2 = uploadedFiles["doc_vault"] || [];
+      vaultDocs2.forEach(doc => {
+        const folder = `Supporting_Documents/${(doc.type || "Other").replace(/[^a-zA-Z0-9]/g, "_")}`;
+        if (doc.file) {
+          const b64 = doc.file.data.split(",")[1];
+          zip.folder(folder).file(doc.file.name, b64, { base64: true });
+        }
+      });
+
+      // Write all other uploaded files into their named folders
+      Object.entries(uploadedFiles).forEach(([id, files]) => {
+        if (id === "doc_vault") return; // handled above
+        if (!Array.isArray(files) || files.length === 0) return;
+        const folder = folderMap[id] || `Documents/${id}`;
+        files.forEach(f => {
+          if (f && f.data) {
+            const b64 = f.data.split(",")[1];
+            zip.folder(folder).file(f.name, b64, { base64: true });
+          }
+        });
+      });
+
+      // ── Build ClientTasks.txt ──────────────────────────────────
+      const today = new Date();
+      const dateStr = today.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+      // Collect all expected uploads and check which are missing
+      const STATIC_UPLOAD_FIELDS = [
+        { uploadId: "file_mortgage", label: "Mortgage Statement", triggerField: "mortgageBalance" },
+        { uploadId: "file_heloc", label: "HELOC Statement", triggerField: "heloc" },
+        { uploadId: "file_paystub", label: "Pay Stub", triggerField: "grossIncome" },
+        
+        { uploadId: "file_lifeins", label: "Life Insurance Policy", triggerField: "lifeDeathBenefit" },
+        { uploadId: "file_estate", label: "Estate Documents (Will/Trust/POA)", triggerField: "hasWill" },
+        { uploadId: "file_taxreturn", label: "Last Year Tax Return", triggerField: null },
+        { uploadId: "file_spouse_paystub", label: "Spouse/Partner Pay Stub", triggerField: "spouseIncomeBlock" },
+      ];
+
+      const missingFiles = [];
+
+      // Check static fields
+      STATIC_UPLOAD_FIELDS.forEach(({ uploadId, label, triggerField }) => {
+        const hasValue = !triggerField || (formData[triggerField] && String(formData[triggerField]).trim() !== "");
+        const hasFile = (uploadedFiles[uploadId] || []).length > 0;
+        if (hasValue && !hasFile) missingFiles.push(label);
+      });
+
+      // Check bank accounts
+      const bankAccts = formData.bankAccounts || [];
+      bankAccts.forEach((a, i) => {
+        const hasFile = (uploadedFiles[a.uploadId] || []).length > 0;
+        if (!hasFile) missingFiles.push(`Bank Statement — ${a.institution || a.type || "Account " + (i + 1)}`);
+      });
+
+      // Check student loans
+      const slLoans = formData.studentLoans || [];
+      slLoans.forEach((l, i) => {
+        const hasFile = (uploadedFiles[l.uploadId] || []).length > 0;
+        if (l.balance && !hasFile) missingFiles.push(`Student Loan Statement — ${l.servicer || "Loan " + (i + 1)}`);
+      });
+
+      // Check auto loans
+      const autoLoans = formData.carLoans || [];
+      autoLoans.forEach((l, i) => {
+        const hasFile = (uploadedFiles[l.uploadId] || []).length > 0;
+        if (l.balance && !hasFile) missingFiles.push(`Auto Loan Statement — ${l.name || "Loan " + (i + 1)}`);
+      });
+
+      // Check credit cards
+      const ccards = formData.creditCards || [];
+      ccards.forEach((cc, i) => {
+        const hasFile = (uploadedFiles[cc.uploadId] || []).length > 0;
+        if (cc.balance && !hasFile) missingFiles.push(`Credit Card Statement — ${cc.name || "Card " + (i + 1)}`);
+      });
+
+      // Check brokerage accounts
+      const brokerageAccts = formData.brokerageAccounts || [];
+      brokerageAccts.forEach((a, i) => {
+        const hasFile = (uploadedFiles[a.uploadId] || []).length > 0;
+        if (a.balance && !hasFile) missingFiles.push(`Brokerage Statement — ${a.institution || a.type || "Account " + (i + 1)}`);
+      });
+
+      // Check retirement accounts
+      const retirementAccts = formData.retirementAccounts || [];
+      retirementAccts.forEach((a, i) => {
+        const hasFile = (uploadedFiles[a.uploadId] || []).length > 0;
+        if (a.balance && !hasFile) missingFiles.push(`Retirement Statement — ${a.institution || a.type || "Account " + (i + 1)}`);
+      });
+
+      // Build ClientTasks.txt
+      const clientName2 = [formData.firstName, formData.lastName].filter(Boolean).join(" ") || "Client";
+      const fullAddress = [formData.address, formData.city, formData.state, formData.zip].filter(Boolean).join(", ");
+      const zillowUrl = fullAddress
+        ? `https://www.zillow.com/homes/${encodeURIComponent(fullAddress)}_rb/`
+        : "https://www.zillow.com";
+
+      let tasksContent = `CLIENT TASKS & MISSING FILES\n`;
+      tasksContent += `${"=".repeat(50)}\n`;
+      tasksContent += `Client: ${clientName2}\n`;
+      tasksContent += `Date: ${dateStr}\n\n`;
+
+      if (missingFiles.length > 0) {
+        tasksContent += `MISSING DOCUMENTS\n`;
+        tasksContent += `${"─".repeat(50)}\n`;
+        tasksContent += `The following documents were not uploaded and\n`;
+        tasksContent += `should be collected from the client:\n\n`;
+        missingFiles.forEach((f, i) => {
+          tasksContent += `  ${i + 1}. ${f}\n`;
+        });
+      } else {
+        tasksContent += `MISSING DOCUMENTS\n`;
+        tasksContent += `${"─".repeat(50)}\n`;
+        tasksContent += `  ✓ All expected documents have been uploaded.\n`;
+      }
+
+      if (fullAddress) {
+        tasksContent += `\nPROPERTY LOOKUP\n`;
+        tasksContent += `${"─".repeat(50)}\n`;
+        tasksContent += `  Address: ${fullAddress}\n`;
+        tasksContent += `  Zillow:  ${zillowUrl}\n`;
+      }
+
+      tasksContent += `\n\nGenerated by Financial Intake App on ${dateStr}\n`;
+      zip.file("ClientTasks.txt", tasksContent);
+      // ──────────────────────────────────────────────────────────
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url;
+      a.download = `${clientName}_financial_intake.zip`; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+
+    function buildWorkbook(formData) {
+      const wb = XLSX.utils.book_new();
+      const clientName = [formData.firstName, formData.lastName].filter(Boolean).join(" ") || "Client";
+
+      const addSheet = (name, rows) => {
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        // Style header row
+        const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+        ws["!cols"] = [{ wch: 35 }, { wch: 40 }, { wch: 20 }];
+        XLSX.utils.book_append_sheet(wb, ws, name);
+      };
+
+      const hdr = (label) => [[label], ["Field", "Value"]];
+
+      // ── 1. Personal & Household ──────────────────────────────
+      const personal = [
+        ...hdr("Personal & Household"),
+        ["First Name", formData.firstName||""],
+        ["Last Name", formData.lastName||""],
+        ["Date of Birth", formData.dob||""],
+        ["Email", formData.email||""],
+        ["Phone", formData.phone||""],
+        ["Street Address", formData.address||""],
+        ["City", formData.city||""],
+        ["State", formData.state||""],
+        ["ZIP", formData.zip||""],
+        ["Employment Status", formData.employmentStatus||""],
+        ["Marital Status", formData.maritalStatus||""],
+        [],
+      ];
+      const spouse = formData.spousePanel;
+      if (spouse) {
+        personal.push(["--- Spouse / Partner ---", ""]);
+        personal.push(["Name", spouse.name||""]);
+        personal.push(["DOB", spouse.dob||""]);
+        personal.push(["Email", spouse.email||""]);
+        personal.push(["Phone", spouse.phone||""]);
+        personal.push([]);
+      }
+      const deps = formData.dependents || [];
+      if (deps.length > 0) {
+        personal.push(["--- Dependents ---", ""]);
+        deps.forEach((d, i) => personal.push([`Dependent ${i+1}`, `${d.name||""} (Age: ${d.age||""})`]));
+      }
+      addSheet("Personal", personal);
+
+      // ── 2. Income & Employment ───────────────────────────────
+      const income = [
+        ...hdr("Income & Employment"),
+        ["Employer", (formData.clientIncome && formData.clientIncome.employer) || formData.employer||""],
+        ["Occupation", (formData.clientIncome && formData.clientIncome.occupation) || formData.occupation||""],
+        ["Annual Gross Income", (formData.clientIncome && formData.clientIncome.grossIncome) || formData.grossIncome||""],
+        ["Annual Bonus / Commission", (formData.clientIncome && formData.clientIncome.bonusIncome) || formData.bonusIncome||""],
+        ["Self-Employment Income", (formData.clientIncome && formData.clientIncome.selfEmployedIncome) || formData.selfEmployedIncome||""],
+        ["Rental Income", (formData.clientIncome && formData.clientIncome.rentalIncome) || formData.rentalIncome||""],
+        [],
+      ];
+      const otherIncome = formData.otherIncome || [];
+      if (otherIncome.length > 0) {
+        income.push(["--- Other Income ---", ""]);
+        otherIncome.forEach((r, i) => income.push([`Source ${i+1}: ${r.source||""}`, r.amount||""]));
+        income.push([]);
+      }
+      const stockPlans = formData.stockPlans || [];
+      if (stockPlans.length > 0) {
+        income.push(["--- Employer Stock Plans ---", ""]);
+        income.push(["Plan Type", "Company", "Grant ($)", "Vested ($)", "Unvested ($)", "Sell Policy"]);
+        stockPlans.forEach(p => income.push([p.type||"", p.company||"", p.grantAmount||"", p.vestedAmount||"", p.unvestedAmount||"", p.sellAtVest||""]));
+        income.push([]);
+      }
+      const spouseBlock = formData.spouseIncomeBlock;
+      if (spouseBlock) {
+        const spouseName = (formData.spousePanel && formData.spousePanel.name) || "Spouse/Partner";
+        income.push([`--- ${spouseName} Income ---`, ""]);
+        income.push(["Employment Status", spouseBlock.employmentStatus||""]);
+        income.push(["Employer", spouseBlock.employer||""]);
+        income.push(["Annual Gross Income", spouseBlock.grossIncome||""]);
+        income.push(["Annual Bonus", spouseBlock.bonusIncome||""]);
+        income.push(["Self-Employment Income", spouseBlock.selfEmployedIncome||""]);
+        const spouseStocks = spouseBlock.stockPlans || [];
+        if (spouseStocks.length > 0) {
+          income.push([]);
+          income.push([`${spouseName} Stock Plans`, ""]);
+          income.push(["Plan Type", "Company", "Grant ($)", "Vested ($)", "Unvested ($)"]);
+          spouseStocks.forEach(p => income.push([p.type||"", p.company||"", p.grantAmount||"", p.vestedAmount||"", p.unvestedAmount||""]));
+        }
+      }
+      addSheet("Income", income);
+
+      // ── 3. Assets & Investments ──────────────────────────────
+      const assets = [...hdr("Assets & Investments")];
+
+      const bankAccts = formData.bankAccounts || [];
+      if (bankAccts.length > 0) {
+        assets.push(["--- Checking & Savings ---", ""]);
+        assets.push(["Institution", "Type", "Balance ($)", "Routing #", "Account #", "Owner"]);
+        bankAccts.forEach(a => assets.push([a.institution||"", a.type||"", a.balance||"", a.routing||"", a.accountNumber||"", a.owner||""]));
+        assets.push([]);
+      }
+
+      const brokerageAccts = formData.brokerageAccounts || [];
+      if (brokerageAccts.length > 0) {
+        assets.push(["--- Taxable Brokerage (Non-Qualified) ---", ""]);
+        assets.push(["Institution", "Type", "Balance ($)", "Account #", "Owner"]);
+        brokerageAccts.forEach(a => assets.push([a.institution||"", a.type||"", a.balance||"", a.accountNumber||"", a.owner||""]));
+        assets.push([]);
+      }
+
+      const retireAccts = formData.retirementAccounts || [];
+      if (retireAccts.length > 0) {
+        assets.push(["--- Retirement Accounts (Qualified) ---", ""]);
+        assets.push(["Institution", "Type", "Balance ($)", "Account #", "Owner"]);
+        retireAccts.forEach(a => assets.push([a.institution||"", a.type||"", a.balance||"", a.accountNumber||"", a.owner||""]));
+        assets.push([]);
+      }
+
+      assets.push(["Primary Home Value ($)", formData.primaryHomeValue||""]);
+      const reProps = formData.otherRealEstate || [];
+      if (reProps.length > 0) {
+        assets.push([]);
+        assets.push(["--- Other Real Estate ---", ""]);
+        assets.push(["Address", "Type", "Est. Value ($)"]);
+        reProps.forEach(p => assets.push([[p.address, p.city, p.state, p.zip].filter(Boolean).join(", "), p.type||"", p.value||""]));
+      }
+      assets.push(["Business Ownership Value ($)", formData.businessValue||""]);
+
+      const otherAssets = formData.otherAssets || [];
+      if (otherAssets.length > 0) {
+        assets.push([]);
+        assets.push(["--- Other Assets ---", ""]);
+        otherAssets.forEach(a => assets.push([a.name||"", a.amount||""]));
+      }
+      addSheet("Assets", assets);
+
+      // ── 4. Debts & Liabilities ───────────────────────────────
+      const debts = [...hdr("Debts & Liabilities")];
+      debts.push(["Mortgage Balance ($)", formData.mortgageBalance||""]);
+      debts.push(["Mortgage Rate (%)", formData.mortgageRate||""]);
+      debts.push(["HELOC Balance ($)", formData.heloc||""]);
+      debts.push([]);
+
+      const autoLoans = formData.carLoans || [];
+      if (autoLoans.length > 0) {
+        debts.push(["--- Auto Loans ---", ""]);
+        debts.push(["Vehicle / Lender", "Balance ($)", "APR (%)", "Mo. Payment ($)"]);
+        autoLoans.forEach(l => debts.push([l.name||"", l.balance||"", l.rate||"", l.payment||""]));
+        debts.push([]);
+      }
+
+      const slLoans = formData.studentLoans || [];
+      if (slLoans.length > 0) {
+        debts.push(["--- Student Loans ---", ""]);
+        debts.push(["Servicer", "Type", "Balance ($)", "Rate (%)", "Mo. Payment ($)"]);
+        slLoans.forEach(l => debts.push([l.servicer||"", l.type||"", l.balance||"", l.rate||"", l.payment||""]));
+        debts.push([]);
+      }
+
+      const ccards = formData.creditCards || [];
+      if (ccards.length > 0) {
+        debts.push(["--- Credit Cards ---", ""]);
+        debts.push(["Card / Issuer", "Balance ($)", "Credit Limit ($)", "APR (%)"]);
+        ccards.forEach(cc => debts.push([cc.name||"", cc.balance||"", cc.limit||"", cc.apr||""]));
+        debts.push([]);
+      }
+
+      const otherDebts = formData.otherDebt || [];
+      if (otherDebts.length > 0) {
+        debts.push(["--- Other Debt ---", ""]);
+        debts.push(["Description", "Balance ($)", "Rate (%)", "Mo. Payment ($)"]);
+        otherDebts.forEach(d => debts.push([d.name||"", d.balance||"", d.rate||"", d.payment||""]));
+      }
+      addSheet("Debts", debts);
+
+      // ── 5. Expenses ──────────────────────────────────────────
+      const expenses = [...hdr("Expenses & Budget")];
+      ["expensesBills", "expensesFrequent", "expensesNonMonthly"].forEach(id => {
+        const section = SECTIONS.find(s => s.fields.some(f => f.id === id));
+        const field = section && section.fields.find(f => f.id === id);
+        const rows2 = formData[id] || (field && field.defaultRows) || [];
+        if (rows2.length > 0) {
+          const label = field ? field.label : id;
+          expenses.push([`--- ${label} ---`, ""]);
+          expenses.push(["Category", "Amount ($)"]);
+          rows2.forEach(r => { if (r.category||r.amount) expenses.push([r.category||"", r.amount||""]); });
+          expenses.push([]);
+        }
+      });
+      addSheet("Expenses", expenses);
+
+      // ── 6. Insurance ─────────────────────────────────────────
+      const insurance = [
+        ...hdr("Insurance"),
+        ["Health Insurance Type", formData.healthInsurance||""],
+        ["Health Deductible ($)", formData.healthDeductible||""],
+        ["Life Insurance Type", formData.lifeInsuranceType||""],
+        ["Life Insurance Death Benefit ($)", formData.lifeDeathBenefit||""],
+        ["Spouse Life Insurance ($)", formData.spouseLifeInsurance||""],
+        ["Disability Insurance", formData.disabilityInsurance||""],
+        ["Disability Monthly Benefit ($)", formData.disabilityBenefit||""],
+        ["Long-Term Care Insurance", formData.longTermCare||""],
+        ["Umbrella Policy", formData.umbrellaPolicy||""],
+        ["Umbrella Limit ($)", formData.umbrellaLimit||""],
+      ];
+      addSheet("Insurance", insurance);
+
+      // ── 7. Estate Planning ───────────────────────────────────
+      const estate = [
+        ...hdr("Estate Planning"),
+        ["Has Will", formData.hasWill||""],
+        ["Has Trust", formData.hasTrust||""],
+        ["Financial POA", formData.hasPOA||""],
+        ["Healthcare Directive", formData.hasHealthcareDirective||""],
+        ["Beneficiaries Reviewed", formData.beneficiariesReviewed||""],
+        ["Estate Value ($)", formData.estateValue||""],
+        ["Charitable Intent", formData.charitableIntent||""],
+        ["Notes", formData.estateNotes||""],
+      ];
+      addSheet("Estate", estate);
+
+      // ── 8. Taxes ─────────────────────────────────────────────
+      const taxes = [
+        ...hdr("Tax Situation"),
+        ["Filing Status", formData.filingStatus||""],
+        ["Federal Bracket", formData.federalBracket||""],
+        ["State of Residence", formData.stateOfResidence||""],
+        ["Federal Taxes Owed Last Year ($)", formData.lastYearTaxes||""],
+        ["AMT Exposure", formData.amtExposure||""],
+        ["Capital Gains Activity", formData.capitalGainsActivity||""],
+        ["Tax-Loss Harvesting", formData.taxLossHarvesting||""],
+        ["Deferred Comp Plan", formData.deferredComp||""],
+        ["Deferred Comp Balance ($)", formData.deferredCompBalance||""],
+        ["Notes", formData.taxNotes||""],
+      ];
+      addSheet("Taxes", taxes);
+
+      // ── 9. Goals ─────────────────────────────────────────────
+      const goals = [...hdr("Financial Goals")];
+      goals.push(["Target Retirement Age", formData.retirementAge||""]);
+      goals.push(["Desired Annual Retirement Income ($)", formData.retirementIncome||""]);
+      goals.push(["Retirement Lifestyle Vision", formData.retirementStyle||""]);
+      goals.push(["Risk Tolerance", formData.riskTolerance||""]);
+      goals.push(["Biggest Concern", formData.biggestConcern||""]);
+      goals.push(["Anticipated Large Purchases", formData.bigPurchases||""]);
+      goals.push([]);
+      const topGoals = formData.topGoals || [];
+      if (topGoals.length > 0) {
+        goals.push(["--- Top Goals ---", ""]);
+        goals.push(["Goal", "Priority"]);
+        topGoals.forEach(g => goals.push([g.goal||"", g.priority||""]));
+      }
+      addSheet("Goals", goals);
+
+      return wb;
+    }
+
+    function exportExcel(formData, uploadedFiles) {
+      const clientName = [formData.firstName, formData.lastName].filter(Boolean).join(" ") || "Client";
+      const wb = buildWorkbook(formData);
+      const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([wbout], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${clientName.replace(/ /g, "_")}_financial_intake.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportSession(formData, completed) {
+      const session = { version: 1, savedAt: new Date().toISOString(), formData, completed: Array.from(completed) };
+      const blob = new Blob([JSON.stringify(session, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url;
+      const name = [formData.firstName, formData.lastName].filter(Boolean).join("_") || "client";
+      a.download = `${name}_intake_session.json`; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importSession(file, onSuccess) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const s = JSON.parse(e.target.result);
+          if (s.formData) onSuccess(s.formData, new Set(s.completed || []));
+          else alert("Invalid session file.");
+        } catch { alert("Could not read session file."); }
+      };
+      reader.readAsText(file);
+    }
+
+
+const SECTIONS = [
+
+  {
+    id: "goals",
+    title: "Financial Goals",
+    icon: "◓",
+    fields: [
+      { id: "retirementAge", label: "Target Retirement Age", type: "number" },
+      { id: "retirementIncome", label: "Desired Annual Retirement Income ($)", type: "number" },
+      { id: "retirementStyle", label: "Retirement Lifestyle Vision", type: "textarea", placeholder: "Travel, downsize, relocate, support family, divorce planning..." },
+      { id: "topGoals", label: "Top Financial Goals", type: "goallist" },
+      { id: "bigPurchases", label: "Anticipated Large Purchases (next 5 yrs)", type: "textarea", placeholder: "Home, vacation property, business, vehicles..." },
+      { id: "riskTolerance", label: "Investment Risk Tolerance", type: "select", options: ["Conservative", "Moderately Conservative", "Moderate", "Moderately Aggressive", "Aggressive"] },
+      { id: "biggestConcern", label: "Biggest Financial Concern", type: "textarea" },
+      { id: "plannerNotes", label: "Additional Notes for Planner", type: "textarea" },
+    ],
+  },
+  {
+    id: "personal",
+    title: "Personal & Household",
+    icon: "◈",
+    fields: [
+      { id: "firstName", label: "First Name", type: "text" },
+      { id: "lastName", label: "Last Name", type: "text" },
+      { id: "dob", label: "Date of Birth", type: "date" },
+      { id: "email", label: "Email", type: "email" },
+      { id: "phone", label: "Phone", type: "tel" },
+      { id: "address", label: "Street Address", type: "text" },
+      { id: "city", label: "City", type: "text" },
+      { id: "state", label: "State", type: "text" },
+      { id: "zip", label: "ZIP Code", type: "text" },
+      { id: "employmentStatus", label: "Employment Status", type: "select", options: ["Employed", "Self-Employed", "Retired", "Unemployed", "Part-Time"] },
+      { id: "maritalStatus", label: "Marital Status", type: "select", options: ["Single", "Married", "Domestic Partner", "Divorced", "Widowed"] },
+      { id: "spousePanel", label: "Spouse / Partner", type: "spousepanel" },
+      { id: "dependents", label: "Dependents", type: "dependentlist" },
+    ],
+  },
+  {
+    id: "income",
+    title: "Income & Employment",
+    icon: "◉",
+    fields: [
+      { id: "clientIncome", label: "Client Income & Employment", type: "clientincomecard" },
+      { id: "spouseIncomeBlock", label: "Spouse / Partner Income & Employment", type: "spouseincomeblock", showIfSpouse: true },
+      { id: "otherIncome", label: "Other Income & Source", type: "multiincome" },
+    ],
+  },
+  {
+    id: "assets",
+    title: "Assets & Investments",
+    icon: "◇",
+    fields: [
+      { id: "bankAccounts", label: "Checking & Savings Accounts", type: "multibankaccount" },
+      { id: "brokerageAccounts", label: "Taxable Brokerage Accounts (Non-Qualified Funds)", type: "multibrokerageaccount" },
+      { id: "retirementAccounts", label: "Retirement Accounts (Qualified Funds)", type: "multiretirementaccount" },
+      { id: "primaryHomeValue", label: "Primary Home Value ($)", type: "number", zillowLink: true },
+      { id: "otherRealEstate", label: "Other Real Estate", type: "multirealestateaccount" },
+      { id: "businessValue", label: "Business Ownership Value ($)", type: "number" },
+      { id: "otherAssets", label: "Other Assets", type: "multiasset" },
+    ],
+  },
+  {
+    id: "debts",
+    title: "Debts & Liabilities",
+    icon: "◌",
+    fields: [
+      { id: "mortgageBalance", label: "Mortgage Balance ($)", type: "number", uploadHint: "Mortgage statement", uploadId: "file_mortgage" },
+      { id: "mortgageRate", label: "Mortgage Interest Rate (%)", type: "number" },
+      { id: "mortgagePayment", label: "Monthly Mortgage Payment ($)", type: "number" },
+      { id: "mortgageBreakdown", label: "Payment Breakdown", type: "mortgagebreakdown" },
+      { id: "heloc", label: "HELOC Balance ($)", type: "number", uploadHint: "HELOC statement", uploadId: "file_heloc" },
+      { id: "carLoans", label: "Auto Loans", type: "multiloan" },
+      { id: "studentLoans", label: "Student Loans", type: "multistudentloan" },
+      { id: "creditCards", label: "Credit Cards", type: "multicredit" },
+      { id: "otherDebt", label: "Other Debt", type: "multidebt" },
+    ],
+  },
+  {
+    id: "expenses",
+    title: "Expenses & Budget",
+    icon: "◎",
+    fields: [
+      { id: "expensesBills", label: "Monthly Bills", type: "expensegroup", defaultRows: [
+        { category: "Rent / Mortgage", amount: "" },
+        { category: "Recurring Bills (utilities, phone, insurance)", amount: "" },
+        { category: "Home Services (cleaners, yard, pest, etc.)", amount: "" },
+        { category: "Childcare / Tuition (K-12)", amount: "" },
+      ]},
+      { id: "expensesFrequent", label: "Monthly", type: "expensegroup", defaultRows: [
+        { category: "Transportation (gas, parking, rideshare)", amount: "" },
+        { category: "Groceries", amount: "" },
+        { category: "Pets / Vet / Grooming", amount: "" },
+        { category: "Eating Out", amount: "" },
+        { category: "Entertainment", amount: "" },
+        { category: "Beauty / Health", amount: "" },
+        { category: "Shopping / Misc", amount: "" },
+      ]},
+      { id: "expensesNonMonthly", label: "Annual", type: "expensegroup", defaultRows: [
+        { category: "Athletics / Hobbies", amount: "" },
+        { category: "Kids Camps / Sports / Enrichment", amount: "" },
+        { category: "Tuition (Higher Education)", amount: "" },
+        { category: "Birthdays / Gifts", amount: "" },
+        { category: "Christmas / Holidays", amount: "" },
+        { category: "Car Maintenance", amount: "" },
+        { category: "Health & Wellness", amount: "" },
+        { category: "Home Maintenance", amount: "" },
+        { category: "HOA / Memberships / Dues", amount: "" },
+        { category: "Travel", amount: "" },
+        { category: "Life Insurance", amount: "" },
+        { category: "Technology", amount: "" },
+        { category: "Tax Prep & Financial Advisory", amount: "" },
+        { category: "Sports / Season Tickets", amount: "" },
+        { category: "Vet Bills", amount: "" },
+        { category: "Wine / Alcohol", amount: "" },
+      ]},
+      { id: "budgetNotes", label: "Additional Budget Notes", type: "textarea" },
+    ],
+  },
+  {
+    id: "insurance",
+    title: "Insurance Coverage",
+    icon: "◐",
+    fields: [
+      { id: "healthInsurance", label: "Health Insurance Type", type: "select", options: ["Employer-Sponsored", "Marketplace/ACA", "Medicare", "Medicaid", "COBRA", "None"] },
+      { id: "healthDeductible", label: "Health Deductible ($)", type: "number" },
+      { id: "lifeInsuranceType", label: "Life Insurance Type", type: "select", options: ["None", "Term", "Whole Life", "Universal Life", "Both Term & Permanent"] },
+      { id: "lifeDeathBenefit", label: "Life Insurance Death Benefit ($)", type: "number", uploadHint: "Insurance policy doc", uploadId: "file_lifeins" },
+      { id: "spouseLifeInsurance", label: "Spouse/Partner Life Insurance ($)", type: "number", showIfSpouse: true },
+      { id: "disabilityInsurance", label: "Disability Insurance?", type: "select", options: ["None", "Short-Term Only", "Long-Term Only", "Both", "Own-Occupation LTD"] },
+      { id: "disabilityBenefit", label: "Disability Monthly Benefit ($)", type: "number" },
+      { id: "longTermCare", label: "Long-Term Care Insurance?", type: "select", options: ["No", "Yes - Individual Policy", "Yes - Employer Group"] },
+      { id: "umbrellaPolicy", label: "Umbrella Policy?", type: "select", options: ["No", "Yes"] },
+      { id: "umbrellaLimit", label: "Umbrella Policy Limit ($)", type: "number" },
+      { id: "insuranceNotes", label: "Insurance Notes", type: "textarea" },
+    ],
+  },
+  {
+    id: "estate",
+    title: "Estate Planning",
+    icon: "◑",
+    fields: [
+      { id: "hasWill", label: "Do you have a Will?", type: "select", options: ["No", "Yes - Current", "Yes - Outdated (5+ years)"] },
+      { id: "hasTrust", label: "Do you have a Trust?", type: "select", options: ["No", "Yes - Revocable Living Trust", "Yes - Irrevocable Trust", "Yes - Multiple"] },
+      { id: "hasPOA", label: "Financial Power of Attorney?", type: "select", options: ["No", "Yes"] },
+      { id: "hasHealthcareDirective", label: "Healthcare Directive / Living Will?", type: "select", options: ["No", "Yes"] },
+      { id: "beneficiariesReviewed", label: "Beneficiaries Reviewed Recently?", type: "select", options: ["Yes", "No - Need Review"] },
+      { id: "estateValue", label: "Estimated Total Estate Value ($)", type: "number" },
+      { id: "charitableIntent", label: "Charitable Giving Goals?", type: "select", options: ["None", "Annual Giving", "Donor-Advised Fund", "Charitable Bequest", "Foundation"] },
+      { id: "estateDocs", label: "Estate Documents", type: "fileonly", uploadHint: "Upload will, trust, POA, directives", uploadId: "file_estate" },
+      { id: "estateNotes", label: "Estate Planning Notes", type: "textarea", placeholder: "Special circumstances, blended family, business succession..." },
+    ],
+  },
+  {
+    id: "taxes",
+    title: "Tax Situation",
+    icon: "◒",
+    fields: [
+      { id: "filingStatus", label: "Tax Filing Status", type: "select", options: ["Single", "Married Filing Jointly", "Married Filing Separately", "Head of Household"] },
+      { id: "federalBracket", label: "Estimated Federal Tax Bracket (%)", type: "select", options: ["10%", "12%", "22%", "24%", "32%", "35%", "37%", "Unsure"] },
+      { id: "stateOfResidence", label: "State of Residence", type: "text" },
+      { id: "lastYearTaxes", label: "Federal Taxes Owed Last Year ($)", type: "number" },
+      { id: "amtExposure", label: "AMT Exposure?", type: "select", options: ["No", "Yes", "Unsure"] },
+      { id: "capitalGainsActivity", label: "Significant Capital Gains Activity?", type: "select", options: ["No", "Yes - Short-Term", "Yes - Long-Term", "Both"] },
+      { id: "taxLossHarvesting", label: "Currently Tax-Loss Harvesting?", type: "select", options: ["No", "Yes", "Unsure what this is"] },
+      { id: "deferredComp", label: "Deferred Compensation Plan?", type: "select", options: ["No", "Yes"] },
+      { id: "deferredCompBalance", label: "Deferred Comp Balance ($)", type: "number" },
+      { id: "taxReturn", label: "Tax Return", type: "fileonly", uploadHint: "Upload last year's tax return (PDF)", uploadId: "file_taxreturn" },
+      { id: "taxNotes", label: "Tax Notes", type: "textarea", placeholder: "Recent large events, stock concentration, rental activity..." },
+    ],
+  },
+  {
+    id: "documents", title: "Documents", icon: "◫",
+    fields: [
+      { id: "documents", label: "Client Documents", type: "documentvault" },
+    ],
+  }
+];
+
+const COLORS = {
+  bg: "#0f0f14",
+  surface: "#16161d",
+  border: "#2a2a38",
+  accent: "#c9a96e",
+  accentLight: "#e8cfa0",
+  text: "#e8e6e0",
+  muted: "#7a7870",
+  complete: "#4a9e6b",
+};
+
+function Field({ field, value, onChange }) {
+  const base = {
+    width: "100%",
+    background: "#1e1e28",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "6px",
+    color: COLORS.text,
+    fontSize: "14px",
+    padding: "10px 12px",
+    outline: "none",
+    fontFamily: "inherit",
+    transition: "border-color 0.2s",
+    boxSizing: "border-box",
+  };
+
+  if (field.type === "select") {
+    return (
+      <select
+        value={value || ""}
+        onChange={(e) => onChange(field.id, e.target.value)}
+        style={{ ...base, cursor: "pointer" }}
+        onFocus={(e) => (e.target.style.borderColor = COLORS.accent)}
+        onBlur={(e) => (e.target.style.borderColor = COLORS.border)}
+      >
+        <option value="">— Select —</option>
+        {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    );
+  }
+
+  if (field.type === "textarea") {
+    return (
+      <textarea
+        value={value || ""}
+        onChange={(e) => onChange(field.id, e.target.value)}
+        placeholder={field.placeholder || ""}
+        rows={3}
+        style={{ ...base, resize: "vertical", lineHeight: "1.5" }}
+        onFocus={(e) => (e.target.style.borderColor = COLORS.accent)}
+        onBlur={(e) => (e.target.style.borderColor = COLORS.border)}
+      />
+    );
+  }
+
+  return (
+    <input
+      type={field.type}
+      value={value || ""}
+      onChange={(e) => onChange(field.id, e.target.value)}
+      placeholder={field.placeholder || ""}
+      style={{ ...base, paddingRight: field.type === "date" ? "40px" : "12px" }}
+      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)}
+      onBlur={(e) => (e.target.style.borderColor = COLORS.border)}
+    />
+  );
+}
+
+
+function ExpenseGroupField({ field, value, onChange }) {
+  const initial = value && Array.isArray(value) ? value : (field.defaultRows || []);
+  const rows = value && Array.isArray(value) ? value : initial;
+
+  const addRow = () => onChange([...rows, { category: "", amount: "" }]);
+  const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+  const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
+
+  // Initialize with defaults if not yet set
+  if (!value) {
+    // Will render with defaultRows on first paint
+  }
+
+  const inputStyle = {
+    background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+    color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+    fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+  };
+
+  return (
+    <div style={{ marginBottom: "8px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 28px", gap: "8px", marginBottom: "6px" }}>
+        {["Category", "Monthly Amount ($)", ""].map((h, i) => (
+          <div key={i} style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", paddingLeft: "2px" }}>{h}</div>
+        ))}
+      </div>
+      {rows.map((row, i) => (
+        <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 28px", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
+          <input type="text" value={row.category} onChange={(e) => updateRow(i, "category", e.target.value)} style={inputStyle}
+            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+          <input type="number" placeholder="0" value={row.amount} onChange={(e) => updateRow(i, "amount", e.target.value)} style={inputStyle}
+            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+          <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: 0, lineHeight: 1 }}>×</button>
+        </div>
+      ))}
+      <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+        onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+        onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+        <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Category
+      </button>
+    </div>
+  );
+}
+
+function MultiDebtField({ value, onChange }) {
+  const rows = value && Array.isArray(value) ? value : [];
+  const addRow = () => onChange([...rows, { name: "", balance: "", rate: "", payment: "" }]);
+  const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+  const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
+
+  const inputStyle = {
+    background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+    color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+    fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+  };
+
+  return (
+    <div>
+      {rows.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 28px", gap: "8px", marginBottom: "6px" }}>
+          {["Description", "Balance ($)", "Rate (%)", "Mo. Payment ($)", ""].map((h, i) => (
+            <div key={i} style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", paddingLeft: "2px" }}>{h}</div>
+          ))}
+        </div>
+      )}
+      {rows.map((row, i) => (
+        <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 28px", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
+          <input type="text" placeholder="e.g. Medical debt" value={row.name} onChange={(e) => updateRow(i, "name", e.target.value)} style={inputStyle}
+            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+          <input type="number" placeholder="0" value={row.balance} onChange={(e) => updateRow(i, "balance", e.target.value)} style={inputStyle}
+            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+          <input type="number" placeholder="0.00" value={row.rate} onChange={(e) => updateRow(i, "rate", e.target.value)} style={inputStyle}
+            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+          <input type="number" placeholder="0" value={row.payment} onChange={(e) => updateRow(i, "payment", e.target.value)} style={inputStyle}
+            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+          <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: 0, lineHeight: 1 }}>×</button>
+        </div>
+      ))}
+      <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+        onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+        onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+        <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Debt
+      </button>
+    </div>
+  );
+}
+
+function MultiLoanField({ value, onChange, uploadedFiles, setUploadedFiles }) {
+  const rows = value && Array.isArray(value) ? value : [];
+  const addRow = () => onChange([...rows, { name: "", balance: "", rate: "", payment: "", uploadId: "file_auto_" + Date.now() }]);
+  const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+  const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
+
+  const handleFile = (uploadId, e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setUploadedFiles(prev => ({ ...prev, [uploadId]: [{ name: file.name, data: ev.target.result, type: file.type, uploadId }] }));
+    reader.readAsDataURL(file); e.target.value = "";
+  };
+
+  const inputStyle = {
+    background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+    color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+    fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+  };
+
+  return (
+    <div>
+      {rows.map((row, i) => {
+        const attached = (uploadedFiles && uploadedFiles[row.uploadId]) || [];
+        return (
+          <div key={i} style={{ padding: "14px 16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+              {[["Vehicle / Lender", "text", "e.g. 2022 Honda CR-V", "name"], ["Balance ($)", "number", "0", "balance"], ["APR (%)", "number", "0.00", "rate"], ["Mo. Payment ($)", "number", "0", "payment"]].map(([lbl, typ, ph, key]) => (
+                <div key={key}>
+                  <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>{lbl}</label>
+                  <input type={typ} placeholder={ph} value={row[key]} onChange={(e) => updateRow(i, key, e.target.value)} style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              {attached.length > 0 ? (
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span>📄</span><span style={{ fontSize: "12px", color: COLORS.complete }}>{attached[0].name}</span>
+                  <button onClick={() => setUploadedFiles(prev => ({ ...prev, [row.uploadId]: [] }))} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
+                </div>
+              ) : (
+                <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 14px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                  <span>⊕</span> Attach statement
+                  <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
+                </label>
+              )}
+              <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+            </div>
+          </div>
+        );
+      })}
+      <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+        onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+        onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+        <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Auto Loan
+      </button>
+    </div>
+  );
+}
+
+function MultiCreditField({ value, onChange, uploadedFiles, setUploadedFiles }) {
+  const rows = value && Array.isArray(value) ? value : [];
+  const addRow = () => onChange([...rows, { name: "", balance: "", limit: "", apr: "", uploadId: "file_cc_" + Date.now() }]);
+  const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+  const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
+
+  const handleFile = (uploadId, e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setUploadedFiles(prev => ({ ...prev, [uploadId]: [{ name: file.name, data: ev.target.result, type: file.type, uploadId }] }));
+    reader.readAsDataURL(file); e.target.value = "";
+  };
+
+  const inputStyle = {
+    background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+    color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+    fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+  };
+
+  return (
+    <div>
+      {rows.map((row, i) => {
+        const attached = (uploadedFiles && uploadedFiles[row.uploadId]) || [];
+        return (
+          <div key={i} style={{ padding: "14px 16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+              {[["Card / Issuer", "text", "e.g. Chase Sapphire", "name"], ["Balance ($)", "number", "0", "balance"], ["Credit Limit ($)", "number", "0", "limit"], ["APR (%)", "number", "0.00", "apr"]].map(([lbl, typ, ph, key]) => (
+                <div key={key}>
+                  <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>{lbl}</label>
+                  <input type={typ} placeholder={ph} value={row[key]} onChange={(e) => updateRow(i, key, e.target.value)} style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              {attached.length > 0 ? (
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span>📄</span><span style={{ fontSize: "12px", color: COLORS.complete }}>{attached[0].name}</span>
+                  <button onClick={() => setUploadedFiles(prev => ({ ...prev, [row.uploadId]: [] }))} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
+                </div>
+              ) : (
+                <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 14px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                  <span>⊕</span> Attach statement
+                  <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
+                </label>
+              )}
+              <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+            </div>
+          </div>
+        );
+      })}
+      <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+        onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+        onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+        <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Credit Card
+      </button>
+    </div>
+  );
+}
+
+function MortgageBreakdownField({ value, onChange }) {
+  const data = value || {};
+  const update = (key, val) => onChange({ ...data, [key]: val });
+
+  const inputStyle = {
+    background: "#1e1e28",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "6px",
+    color: COLORS.text,
+    fontSize: "13px",
+    padding: "8px 12px",
+    outline: "none",
+    fontFamily: "inherit",
+    boxSizing: "border-box",
+    width: "100%",
+  };
+
+  const subFields = [
+    { id: "principal", label: "Principal & Interest ($)" },
+    { id: "propertyTax", label: "Property Tax — Escrow ($)" },
+    { id: "homeInsurance", label: "Homeowner's Insurance — Escrow ($)" },
+    { id: "pmi", label: "PMI / Mortgage Insurance ($)" },
+    { id: "hoaFee", label: "HOA Fee ($)" },
+    { id: "floodInsurance", label: "Flood Insurance — Escrow ($)" },
+    { id: "melloRoos", label: "Mello-Roos / Special Assessment ($)" },
+    { id: "other", label: "Other ($)" },
+  ];
+
+  return (
+    <div style={{
+      marginTop: "8px",
+      marginLeft: "20px",
+      paddingLeft: "16px",
+      borderLeft: `2px solid ${COLORS.border}`,
+    }}>
+      <div style={{ display: "grid", gap: "12px" }}>
+        {subFields.map((f) => (
+          <div key={f.id} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <label style={{ fontSize: "11px", letterSpacing: "0.08em", color: COLORS.muted, textTransform: "uppercase", flex: "0 0 260px" }}>
+              {f.label}
+            </label>
+            <input
+              type="number"
+              placeholder="—"
+              value={data[f.id] || ""}
+              onChange={(e) => update(f.id, e.target.value)}
+              style={{ ...inputStyle, width: "140px", flex: "0 0 140px" }}
+              onFocus={(e) => (e.target.style.borderColor = COLORS.accent)}
+              onBlur={(e) => (e.target.style.borderColor = COLORS.border)}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MultiIncomeField({ value, onChange }) {
+  const rows = value && Array.isArray(value) ? value : [];
+
+  const addRow = () => onChange([...rows, { source: "", amount: "" }]);
+  const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+  const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
+
+  const inputStyle = {
+    background: "#1e1e28",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "6px",
+    color: COLORS.text,
+    fontSize: "14px",
+    padding: "10px 12px",
+    outline: "none",
+    fontFamily: "inherit",
+    boxSizing: "border-box",
+    width: "100%",
+  };
+
+  return (
+    <div>
+      {rows.map((row, i) => (
+        <div key={i} style={{ display: "flex", gap: "10px", marginBottom: "10px", alignItems: "center" }}>
+          <input
+            type="text"
+            placeholder="Income source"
+            value={row.source}
+            onChange={(e) => updateRow(i, "source", e.target.value)}
+            style={{ ...inputStyle, flex: 2 }}
+            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)}
+            onBlur={(e) => (e.target.style.borderColor = COLORS.border)}
+          />
+          <input
+            type="number"
+            placeholder="Annual ($)"
+            value={row.amount}
+            onChange={(e) => updateRow(i, "amount", e.target.value)}
+            style={{ ...inputStyle, flex: 1 }}
+            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)}
+            onBlur={(e) => (e.target.style.borderColor = COLORS.border)}
+          />
+          <button
+            onClick={() => removeRow(i)}
+            style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: "0 4px", lineHeight: 1 }}
+          >×</button>
+        </div>
+      ))}
+      <button
+        onClick={addRow}
+        style={{
+          display: "flex", alignItems: "center", gap: "6px",
+          background: "transparent", border: `1px dashed ${COLORS.border}`,
+          borderRadius: "6px", color: COLORS.muted, cursor: "pointer",
+          fontSize: "13px", padding: "8px 14px", fontFamily: "inherit",
+          transition: "border-color 0.2s, color 0.2s",
+        }}
+        onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+        onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}
+      >
+        <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Income Source
+      </button>
+    </div>
+  );
+}
+
+function MultiAssetField({ value, onChange }) {
+  const rows = value && Array.isArray(value) ? value : [];
+
+  const addRow = () => onChange([...rows, { name: "", amount: "" }]);
+
+  const updateRow = (i, key, val) => {
+    const updated = rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r);
+    onChange(updated);
+  };
+
+  const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
+
+  const inputStyle = {
+    background: "#1e1e28",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "6px",
+    color: COLORS.text,
+    fontSize: "14px",
+    padding: "10px 12px",
+    outline: "none",
+    fontFamily: "inherit",
+    boxSizing: "border-box",
+    width: "100%",
+  };
+
+  return (
+    <div>
+      {rows.map((row, i) => (
+        <div key={i} style={{ display: "flex", gap: "10px", marginBottom: "10px", alignItems: "center" }}>
+          <input
+            type="text"
+            placeholder="Asset name"
+            value={row.name}
+            onChange={(e) => updateRow(i, "name", e.target.value)}
+            style={{ ...inputStyle, flex: 2 }}
+            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)}
+            onBlur={(e) => (e.target.style.borderColor = COLORS.border)}
+          />
+          <input
+            type="number"
+            placeholder="Value ($)"
+            value={row.amount}
+            onChange={(e) => updateRow(i, "amount", e.target.value)}
+            style={{ ...inputStyle, flex: 1 }}
+            onFocus={(e) => (e.target.style.borderColor = COLORS.accent)}
+            onBlur={(e) => (e.target.style.borderColor = COLORS.border)}
+          />
+          <button
+            onClick={() => removeRow(i)}
+            style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: "0 4px", lineHeight: 1 }}
+          >×</button>
+        </div>
+      ))}
+      <button
+        onClick={addRow}
+        style={{
+          display: "flex", alignItems: "center", gap: "6px",
+          background: "transparent", border: `1px dashed ${COLORS.border}`,
+          borderRadius: "6px", color: COLORS.muted, cursor: "pointer",
+          fontSize: "13px", padding: "8px 14px", fontFamily: "inherit",
+          transition: "border-color 0.2s, color 0.2s",
+        }}
+        onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+        onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}
+      >
+        <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Asset
+      </button>
+    </div>
+  );
+}
+
+
+    function FileUploadButton({ uploadId, hint, uploadedFiles, setUploadedFiles }) {
+      const files = uploadedFiles[uploadId] || [];
+      const handleFiles = (e) => {
+        const promises = Array.from(e.target.files).map(f => new Promise(resolve => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve({ name: f.name, data: ev.target.result, type: f.type, uploadId });
+          reader.readAsDataURL(f);
+        }));
+        Promise.all(promises).then(loaded => {
+          setUploadedFiles(prev => ({ ...prev, [uploadId]: [...(prev[uploadId] || []), ...loaded] }));
+        });
+        e.target.value = "";
+      };
+      const removeFile = (i) => setUploadedFiles(prev => {
+        const updated = [...(prev[uploadId] || [])]; updated.splice(i, 1);
+        return { ...prev, [uploadId]: updated };
+      });
+      return (
+        <div style={{ marginTop: "8px" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 12px", background: "transparent", border: `1px dashed ${files.length > 0 ? COLORS.complete : COLORS.border}`, borderRadius: "6px", color: files.length > 0 ? COLORS.complete : COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+            <span>{files.length > 0 ? "✓" : "⊕"}</span>
+            {files.length > 0 ? `${files.length} file${files.length > 1 ? "s" : ""} attached` : (hint || "Attach file")}
+            <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} onChange={handleFiles} />
+          </label>
+          {files.length > 0 && (
+            <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {files.map((f, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "4px 10px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "20px", fontSize: "12px", color: COLORS.text }}>
+                  <span>📄</span>
+                  <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                  <button onClick={() => removeFile(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0, lineHeight: 1 }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function AccountCard({ row, i, updateRow, removeRow, uploadedFiles, setUploadedFiles, handleFile, accountTypes, inputStyle, showRemove, showCheckboxes, ownerOptions }) {
+      const attached = uploadedFiles[row.uploadId] || [];
+      return (
+        <div style={{ padding: "16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: showCheckboxes ? "auto 2fr 1fr" : "2fr 1fr 1fr", gap: "10px", marginBottom: "10px", alignItems: "end" }}>
+            {showCheckboxes && (
+              <div>
+                <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Account Type</label>
+                <div style={{ padding: "9px 12px", background: "rgba(201,169,110,0.08)", border: `1px solid ${COLORS.accent}44`, borderRadius: "6px", fontSize: "12px", color: COLORS.accentLight, whiteSpace: "nowrap" }}>{row.type}</div>
+              </div>
+            )}
+            <div>
+              <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Institution / Custodian</label>
+              <input type="text" placeholder="e.g. Fidelity" value={row.institution} onChange={(e) => updateRow(i, "institution", e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+            </div>
+            {!showCheckboxes && (
+              <div>
+                <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Account Type</label>
+                <select value={row.type} onChange={(e) => updateRow(i, "type", e.target.value)} style={inputStyle}
+                  onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                  {accountTypes.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Balance ($)</label>
+              <input type="number" placeholder="0" value={row.balance} onChange={(e) => updateRow(i, "balance", e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: ownerOptions ? "1fr 1fr" : "1fr", gap: "10px", marginBottom: "10px" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Account Number</label>
+              <input type="text" placeholder="Account number" value={row.accountNumber || ""} onChange={(e) => updateRow(i, "accountNumber", e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+            </div>
+            {ownerOptions && (
+              <div>
+                <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Owner</label>
+                <select value={row.owner || ""} onChange={(e) => updateRow(i, "owner", e.target.value)} style={inputStyle}
+                  onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                  <option value="">— Select —</option>
+                  {ownerOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            {attached.length > 0 ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span>📄</span>
+                <span style={{ fontSize: "12px", color: COLORS.complete }}>{attached[0].name}</span>
+                <button onClick={() => setUploadedFiles(prev => ({ ...prev, [row.uploadId]: [] }))}
+                  style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
+              </div>
+            ) : (
+              <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 14px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                <span>⊕</span> Attach statement
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
+              </label>
+            )}
+            {showRemove && (
+              <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function MultiAccountField({ value, onChange, uploadedFiles, setUploadedFiles, accountTypes, addLabel, uploadPrefix, showCheckboxes, spousePanel, clientName }) {
+      const makeRow = (type) => ({ institution: "", type: type || accountTypes[0], balance: "", accountNumber: "", owner: "", uploadId: uploadPrefix + "_" + Date.now() + "_" + Math.random().toString(36).slice(2) });
+      const ownerOptions = spousePanel && (spousePanel.name || Object.keys(spousePanel).length > 0)
+        ? [clientName || "Client", spousePanel.name || "Spouse/Partner", "Joint"].filter(Boolean)
+        : null;
+      const rows = value && Array.isArray(value) ? value : (showCheckboxes ? [] : [makeRow()]);
+
+      React.useEffect(() => {
+        if (!value) onChange(showCheckboxes ? [] : [makeRow()]);
+      }, []);
+
+      const addRow = (type) => onChange([...rows, makeRow(type)]);
+      const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+      const removeRow = (i) => {
+        const row = rows[i];
+        if (row.uploadId) setUploadedFiles(prev => { const u = {...prev}; delete u[row.uploadId]; return u; });
+        const updated = rows.filter((_, idx) => idx !== i);
+        onChange(updated.length === 0 && !showCheckboxes ? [makeRow()] : updated);
+      };
+
+      const handleFile = (uploadId, e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => setUploadedFiles(prev => ({ ...prev, [uploadId]: [{ name: file.name, data: ev.target.result, type: file.type, uploadId }] }));
+        reader.readAsDataURL(file);
+        e.target.value = "";
+      };
+
+      const handleCheckbox = (type, checked) => {
+        if (checked) {
+          onChange([...rows, makeRow(type)]);
+        } else {
+          onChange(rows.filter(r => r.type !== type));
+        }
+      };
+
+      const checkedTypes = new Set(rows.map(r => r.type));
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      if (showCheckboxes) {
+        const typeGroups = {};
+        rows.forEach((row, i) => {
+          if (!typeGroups[row.type]) typeGroups[row.type] = [];
+          typeGroups[row.type].push({ row, i });
+        });
+
+        return (
+          <div>
+            <div style={{ marginBottom: "16px", padding: "14px 16px", background: "#1a1a22", border: `1px solid ${COLORS.border}`, borderRadius: "8px" }}>
+              <div style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "10px" }}>Select Account Types</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                {accountTypes.filter(t => t !== "Other").map(type => {
+                  const isChecked = checkedTypes.has(type);
+                  return (
+                    <label key={type} style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 12px", background: isChecked ? "rgba(201,169,110,0.12)" : "transparent", border: `1px solid ${isChecked ? COLORS.accent : COLORS.border}`, borderRadius: "20px", cursor: "pointer", fontSize: "12px", color: isChecked ? COLORS.accentLight : COLORS.muted, fontFamily: "inherit", transition: "all 0.15s" }}>
+                      <input type="checkbox" checked={isChecked} onChange={(e) => handleCheckbox(type, e.target.checked)} style={{ accentColor: COLORS.accent, width: "13px", height: "13px" }} />
+                      {type}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {accountTypes.filter(t => checkedTypes.has(t)).map(type => {
+              const group = typeGroups[type] || [];
+              return (
+                <div key={type} style={{ marginBottom: "16px" }}>
+                  <div style={{ fontSize: "11px", letterSpacing: "0.1em", color: COLORS.accent, textTransform: "uppercase", marginBottom: "8px" }}>{type}</div>
+                  {group.map(({ row, i }) => (
+                    <AccountCard key={row.uploadId} row={row} i={i} updateRow={updateRow} removeRow={removeRow}
+                      uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} handleFile={handleFile}
+                      accountTypes={accountTypes} inputStyle={inputStyle} showRemove={group.length > 1} showCheckboxes={true} ownerOptions={ownerOptions} />
+                  ))}
+                  <button onClick={() => addRow(type)}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "5px", background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit", padding: "4px 0", marginBottom: "4px" }}
+                    onMouseOver={(e) => e.currentTarget.style.color = COLORS.accentLight}
+                    onMouseOut={(e) => e.currentTarget.style.color = COLORS.muted}>
+                    <span style={{ fontSize: "15px" }}>+</span> Add another {type}
+                  </button>
+                </div>
+              );
+            })}
+
+            <button onClick={() => addRow("Other")} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", marginTop: "4px" }}
+              onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+              onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+              <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Other Account
+            </button>
+          </div>
+        );
+      }
+
+      return (
+        <div>
+          {rows.map((row, i) => (
+            <AccountCard key={row.uploadId || i} row={row} i={i} updateRow={updateRow} removeRow={removeRow}
+              uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} handleFile={handleFile}
+              accountTypes={accountTypes} inputStyle={inputStyle} showRemove={rows.length > 1} showCheckboxes={false} ownerOptions={ownerOptions} />
+          ))}
+          <button onClick={() => addRow()} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> {addLabel}
+          </button>
+        </div>
+      );
+    }
+
+    const BROKERAGE_TYPES = ["Taxable Brokerage", "Joint Brokerage", "Custodial (UTMA/UGMA)", "Trust Account", "Other"];
+    const RETIREMENT_TYPES = ["Traditional 401(k)", "Roth 401(k)", "403(b)", "Traditional IRA", "Roth IRA", "SEP IRA", "SIMPLE IRA", "Pension", "HSA", "529 / Education", "Deferred Compensation", "Other"];
+
+    function MultiStudentLoanField({ value, onChange, uploadedFiles, setUploadedFiles }) {
+      const rows = value && Array.isArray(value) ? value : [];
+      const addRow = () => onChange([...rows, { servicer: "", type: "", balance: "", rate: "", payment: "", uploadId: "file_sl_" + Date.now() }]);
+      const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+      const removeRow = (i) => {
+        const row = rows[i];
+        if (row.uploadId) setUploadedFiles(prev => { const u = {...prev}; delete u[row.uploadId]; return u; });
+        onChange(rows.filter((_, idx) => idx !== i));
+      };
+
+      const handleFile = (uploadId, e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => setUploadedFiles(prev => ({ ...prev, [uploadId]: [{ name: file.name, data: ev.target.result, type: file.type, uploadId }] }));
+        reader.readAsDataURL(file);
+        e.target.value = "";
+      };
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      return (
+        <div>
+          {rows.map((row, i) => {
+            const attached = uploadedFiles[row.uploadId] || [];
+            return (
+              <div key={i} style={{ padding: "14px 16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Servicer</label>
+                    <input type="text" placeholder="e.g. Navient, FedLoan" value={row.servicer} onChange={(e) => updateRow(i, "servicer", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Loan Type</label>
+                    <select value={row.type} onChange={(e) => updateRow(i, "type", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                      <option value="">— Select —</option>
+                      <option>Federal - Direct Subsidized</option>
+                      <option>Federal - Direct Unsubsidized</option>
+                      <option>Federal - PLUS</option>
+                      <option>Federal - Grad PLUS</option>
+                      <option>Private</option>
+                      <option>Refinanced</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Balance ($)</label>
+                    <input type="number" placeholder="0" value={row.balance} onChange={(e) => updateRow(i, "balance", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Interest Rate (%)</label>
+                    <input type="number" placeholder="0.00" value={row.rate} onChange={(e) => updateRow(i, "rate", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Mo. Payment ($)</label>
+                    <input type="number" placeholder="0" value={row.payment} onChange={(e) => updateRow(i, "payment", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  {attached.length > 0 ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span>📄</span>
+                      <span style={{ fontSize: "12px", color: COLORS.complete }}>{attached[0].name}</span>
+                      <button onClick={() => setUploadedFiles(prev => ({ ...prev, [row.uploadId]: [] }))}
+                        style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
+                    </div>
+                  ) : (
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 14px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                      <span>⊕</span> Attach statement
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
+                    </label>
+                  )}
+                  <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+                </div>
+              </div>
+            );
+          })}
+          <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Student Loan
+          </button>
+        </div>
+      );
+    }
+
+    function MultiRealEstateField({ value, onChange, formData }) {
+      const rows = value && Array.isArray(value) ? value : [{ address: "", city: "", state: "", zip: "", type: "Rental Property", value: "", uploadId: "file_re_" + Date.now() }];
+
+      React.useEffect(() => {
+        if (!value || value.length === 0) onChange([{ address: "", city: "", state: "", zip: "", type: "Rental Property", value: "", uploadId: "file_re_" + Date.now() }]);
+      }, []);
+
+      const addRow = () => onChange([...rows, { address: "", city: "", state: "", zip: "", type: "Rental Property", value: "", uploadId: "file_re_" + Date.now() }]);
+      const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+      const removeRow = (i) => { if (rows.length === 1) return; onChange(rows.filter((_, idx) => idx !== i)); };
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      const RE_TYPES = ["Rental Property", "Vacation Home", "Commercial", "Land", "Investment Property", "Other"];
+
+      return (
+        <div>
+          {rows.map((row, i) => {
+            const fullAddr = [row.address, row.city, row.state, row.zip].filter(Boolean).join(", ");
+            const zillowUrl = fullAddr
+              ? `https://www.zillow.com/homes/${encodeURIComponent(fullAddr)}_rb/`
+              : "https://www.zillow.com";
+            return (
+              <div key={i} style={{ padding: "16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Street Address</label>
+                    <input type="text" placeholder="123 Main St" value={row.address} onChange={(e) => updateRow(i, "address", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Property Type</label>
+                    <select value={row.type} onChange={(e) => updateRow(i, "type", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                      {RE_TYPES.map(t => <option key={t}>{t}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>City</label>
+                    <input type="text" value={row.city} onChange={(e) => updateRow(i, "city", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>State</label>
+                    <input type="text" value={row.state} onChange={(e) => updateRow(i, "state", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>ZIP</label>
+                    <input type="text" value={row.zip} onChange={(e) => updateRow(i, "zip", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Est. Value ($)</label>
+                    <input type="number" placeholder="0" value={row.value} onChange={(e) => updateRow(i, "value", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  {fullAddr ? (
+                    <a href={zillowUrl} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: "12px", color: COLORS.accent, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      onMouseOver={(e) => e.currentTarget.style.textDecoration = "underline"}
+                      onMouseOut={(e) => e.currentTarget.style.textDecoration = "none"}>
+                      🏠 Look up on Zillow ↗
+                    </a>
+                  ) : <div />}
+                  {rows.length > 1 && (
+                    <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Property
+          </button>
+        </div>
+      );
+    }
+
+    function MultiBankAccountField({ value, onChange, uploadedFiles, setUploadedFiles, spousePanel, clientName }) {
+      const defaultRow = { institution: "", type: "Checking", balance: "", routing: "", accountNumber: "", owner: "", uploadId: "file_bank_" + Date.now() };
+      const ownerOptions = spousePanel && (spousePanel.name || Object.keys(spousePanel).length > 0)
+        ? [clientName || "Client", spousePanel.name || "Spouse/Partner", "Joint"].filter(Boolean)
+        : null;
+      const rows = value && Array.isArray(value) ? value : [{ ...defaultRow }];
+
+      // Initialize with one default row if empty
+      React.useEffect(() => {
+        if (!value || value.length === 0) onChange([{ ...defaultRow, uploadId: "file_bank_" + Date.now() }]);
+      }, []);
+
+      const addRow = () => onChange([...rows, { institution: "", type: "Checking", balance: "", routing: "", accountNumber: "", uploadId: "file_bank_" + Date.now() }]);
+      const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+      const removeRow = (i) => {
+        if (rows.length === 1) return; // keep at least one
+        const row = rows[i];
+        if (row.uploadId) setUploadedFiles(prev => { const u = {...prev}; delete u[row.uploadId]; return u; });
+        onChange(rows.filter((_, idx) => idx !== i));
+      };
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      const handleFile = (uploadId, e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          setUploadedFiles(prev => ({
+            ...prev,
+            [uploadId]: [{ name: file.name, data: ev.target.result, type: file.type, uploadId }]
+          }));
+        };
+        reader.readAsDataURL(file);
+        e.target.value = "";
+      };
+
+      return (
+        <div>
+          {rows.map((row, i) => {
+            const attached = (uploadedFiles[row.uploadId] || []);
+            return (
+              <div key={i} style={{ padding: "16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Institution</label>
+                    <input type="text" placeholder="e.g. Chase" value={row.institution} onChange={(e) => updateRow(i, "institution", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Type</label>
+                    <select value={row.type} onChange={(e) => updateRow(i, "type", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                      <option>Checking</option>
+                      <option>Savings</option>
+                      <option>Money Market</option>
+                      <option>CD</option>
+                      <option>Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Balance ($)</label>
+                    <input type="number" placeholder="0" value={row.balance} onChange={(e) => updateRow(i, "balance", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: ownerOptions ? "1fr 1fr 1fr" : "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Routing Number</label>
+                    <input type="text" placeholder="9 digits" value={row.routing} onChange={(e) => updateRow(i, "routing", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Account Number</label>
+                    <input type="text" placeholder="Account number" value={row.accountNumber} onChange={(e) => updateRow(i, "accountNumber", e.target.value)} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                  </div>
+                  {ownerOptions && (
+                    <div>
+                      <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Owner</label>
+                      <select value={row.owner || ""} onChange={(e) => updateRow(i, "owner", e.target.value)} style={inputStyle}
+                        onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                        <option value="">— Select —</option>
+                        {ownerOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  {attached.length > 0 ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{ fontSize: "14px" }}>📄</span>
+                      <span style={{ fontSize: "12px", color: COLORS.complete }}>{attached[0].name}</span>
+                      <button onClick={() => setUploadedFiles(prev => ({ ...prev, [row.uploadId]: [] }))}
+                        style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
+                    </div>
+                  ) : (
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 14px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                      <span>⊕</span> Attach statement
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleFile(row.uploadId, e)} />
+                    </label>
+                  )}
+                  {rows.length > 1 && (
+                    <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Account
+          </button>
+        </div>
+      );
+    }
+
+    function DependentListField({ value, onChange }) {
+      const rows = value && Array.isArray(value) ? value : [];
+      const addRow = () => onChange([...rows, { name: "", age: "" }]);
+      const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+      const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      return (
+        <div>
+          {rows.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 28px", gap: "8px", marginBottom: "6px" }}>
+              {["Name", "Age", ""].map((h, i) => (
+                <div key={i} style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", paddingLeft: "2px" }}>{h}</div>
+              ))}
+            </div>
+          )}
+          {rows.map((row, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 28px", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
+              <input type="text" placeholder="e.g. Emma" value={row.name} onChange={(e) => updateRow(i, "name", e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+              <input type="number" placeholder="Age" value={row.age} onChange={(e) => updateRow(i, "age", e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+              <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: 0, lineHeight: 1 }}>×</button>
+            </div>
+          ))}
+          <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Dependent
+          </button>
+        </div>
+      );
+    }
+
+    const STOCK_PLAN_TYPES = ["RSUs", "Stock Options", "ESPP", "NQSO", "ISO", "Phantom Stock", "SAR", "Other"];
+
+    function StockPlanField({ value, onChange, label }) {
+      const makeRow = (type) => ({ company: "", type: type || STOCK_PLAN_TYPES[0], grantAmount: "", vestedAmount: "", unvestedAmount: "", sellAtVest: "", notes: "", id: Date.now() + "_" + Math.random().toString(36).slice(2) });
+
+      const getRows = () => (value && Array.isArray(value) ? value : []);
+
+      const addRow = (type) => onChange([...getRows(), makeRow(type)]);
+      const updateRow = (i, key, val) => onChange(getRows().map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+      const removeRow = (i) => onChange(getRows().filter((_, idx) => idx !== i));
+
+      const rows = getRows();
+      const checkedTypes = new Set(rows.map(r => r.type));
+
+      const handleCheckbox = (type, checked) => {
+        const current = getRows();
+        if (checked) onChange([...current, makeRow(type)]);
+        else onChange(current.filter(r => r.type !== type));
+      };
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      const typeGroups = {};
+      getRows().forEach((row, i) => {
+        if (!typeGroups[row.type]) typeGroups[row.type] = [];
+        typeGroups[row.type].push({ row, i });
+      });
+
+      return (
+        <div>
+          {/* Checkbox selector */}
+          <div style={{ marginBottom: "16px", padding: "14px 16px", background: "#1a1a22", border: `1px solid ${COLORS.border}`, borderRadius: "8px" }}>
+            <div style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "10px" }}>Employer Stock Plans</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+              {STOCK_PLAN_TYPES.filter(t => t !== "Other").map(type => {
+                const isChecked = checkedTypes.has(type);
+                return (
+                  <label key={type} style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 12px", background: isChecked ? "rgba(201,169,110,0.12)" : "transparent", border: `1px solid ${isChecked ? COLORS.accent : COLORS.border}`, borderRadius: "20px", cursor: "pointer", fontSize: "12px", color: isChecked ? COLORS.accentLight : COLORS.muted, fontFamily: "inherit", transition: "all 0.15s" }}>
+                    <input type="checkbox" checked={isChecked} onChange={(e) => handleCheckbox(type, e.target.checked)} style={{ accentColor: COLORS.accent, width: "13px", height: "13px" }} />
+                    {type}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Cards grouped by type */}
+          {STOCK_PLAN_TYPES.filter(t => checkedTypes.has(t)).map(type => {
+            const group = typeGroups[type] || [];
+            return (
+              <div key={type} style={{ marginBottom: "16px" }}>
+                <div style={{ fontSize: "11px", letterSpacing: "0.1em", color: COLORS.accent, textTransform: "uppercase", marginBottom: "8px" }}>{type}</div>
+                {group.map(({ row, i }) => (
+                  <div key={row.id || i} style={{ padding: "16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", marginBottom: "10px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Company / Employer</label>
+                        <input type="text" placeholder="e.g. Intel" value={row.company} onChange={(e) => updateRow(i, "company", e.target.value)} style={inputStyle}
+                          onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Plan Type</label>
+                        <div style={{ padding: "9px 12px", background: "rgba(201,169,110,0.08)", border: `1px solid ${COLORS.accent}44`, borderRadius: "6px", fontSize: "12px", color: COLORS.accentLight }}>{row.type}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Grant / Total ($)</label>
+                        <input type="number" placeholder="0" value={row.grantAmount} onChange={(e) => updateRow(i, "grantAmount", e.target.value)} style={inputStyle}
+                          onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Vested ($)</label>
+                        <input type="number" placeholder="0" value={row.vestedAmount} onChange={(e) => updateRow(i, "vestedAmount", e.target.value)} style={inputStyle}
+                          onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Unvested ($)</label>
+                        <input type="number" placeholder="0" value={row.unvestedAmount} onChange={(e) => updateRow(i, "unvestedAmount", e.target.value)} style={inputStyle}
+                          onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                      </div>
+                    </div>
+                    <div style={{ marginBottom: "10px" }}>
+                      <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Sell at Vest / Exercise Policy</label>
+                      <select value={row.sellAtVest} onChange={(e) => updateRow(i, "sellAtVest", e.target.value)} style={inputStyle}
+                        onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                        <option value="">— Select —</option>
+                        <option>Sell all at vest</option>
+                        <option>Hold all</option>
+                        <option>Sell to cover taxes, hold rest</option>
+                        <option>Partial sell</option>
+                        <option>Varies</option>
+                      </select>
+                    </div>
+                    <div style={{ marginBottom: "10px" }}>
+                      <label style={{ display: "block", fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Notes (vesting schedule, etc.)</label>
+                      <textarea value={row.notes} onChange={(e) => updateRow(i, "notes", e.target.value)} placeholder="e.g. 4-year vest, 1-year cliff, quarterly thereafter..." rows={2}
+                        style={{ ...inputStyle, resize: "vertical", lineHeight: "1.5" }}
+                        onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div />
+                      {group.length > 1 && (
+                        <button onClick={() => removeRow(i)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: 0 }}>Remove ×</button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <button onClick={() => addRow(type)} style={{ display: "inline-flex", alignItems: "center", gap: "5px", background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit", padding: "4px 0", marginBottom: "4px" }}
+                  onMouseOver={(e) => e.currentTarget.style.color = COLORS.accentLight}
+                  onMouseOut={(e) => e.currentTarget.style.color = COLORS.muted}>
+                  <span style={{ fontSize: "15px" }}>+</span> Add another {type}
+                </button>
+              </div>
+            );
+          })}
+
+          {/* Other / custom */}
+          <button onClick={() => addRow("Other")} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", marginTop: "4px" }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Other Plan
+          </button>
+        </div>
+      );
+    }
+
+    function SpouseIncomeBlockField({ value, onChange, spouseName, uploadedFiles, setUploadedFiles }) {
+      const data = value || {};
+      const update = (key, val) => onChange({ ...data, [key]: val });
+      const label = spouseName || "Spouse / Partner";
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "14px", padding: "10px 12px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      return (
+        <div style={{ padding: "20px", background: "#1e1e28", border: `1px solid ${COLORS.accent}44`, borderRadius: "10px" }}>
+          <div style={{ fontSize: "13px", color: COLORS.accentLight, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "16px" }}>{label}</div>
+          <div style={{ display: "grid", gap: "14px" }}>
+            {[
+              { key: "employmentStatus", label: "Employment Status", type: "select", options: ["Employed", "Self-Employed", "Retired", "Unemployed", "Part-Time", "Stay-at-Home"] },
+              { key: "employer", label: "Employer / Business", type: "text" },
+              { key: "grossIncome", label: "Annual Gross Income ($)", type: "number" },
+              { key: "bonusIncome", label: "Annual Bonus / Commission ($)", type: "number" },
+              { key: "selfEmployedIncome", label: "Self-Employment / Business Income ($)", type: "number" },
+              { key: "otherIncome", label: "Other Income & Source", type: "text", placeholder: "e.g. rental, Social Security..." },
+            ].map(f => (
+              <div key={f.key}>
+                <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>{f.label}</label>
+                {f.type === "select" ? (
+                  <select value={data[f.key] || ""} onChange={(e) => update(f.key, e.target.value)} style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                    <option value="">— Select —</option>
+                    {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input type={f.type} placeholder={f.placeholder || ""} value={data[f.key] || ""} onChange={(e) => update(f.key, e.target.value)} style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                )}
+              </div>
+            ))}
+
+            {/* Pay stub upload */}
+            <div>
+              <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>Pay Stub</label>
+              <FileUploadButton uploadId="file_spouse_paystub" hint="Attach pay stub" uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+            </div>
+
+            {/* Spouse stock plans */}
+            <div>
+              <div style={{ fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "8px" }}>Employer Stock Plans</div>
+              <StockPlanField value={data.stockPlans} onChange={(val) => update("stockPlans", val)} label="Spouse Stock Plans" />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function SpousePanelField({ value, onChange }) {
+      const data = value || null;
+      const [open, setOpen] = React.useState(!!data);
+
+      const update = (key, val) => onChange({ ...(data || {}), [key]: val });
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "14px", padding: "10px 12px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      if (!open) {
+        return (
+          <button
+            onClick={() => { setOpen(true); onChange({}); }}
+            style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "10px 16px", fontFamily: "inherit", transition: "all 0.2s" }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}
+          >
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Spouse / Partner
+          </button>
+        );
+      }
+
+      return (
+        <div style={{ padding: "20px", background: "#1e1e28", border: `1px solid ${COLORS.accent}44`, borderRadius: "10px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+            <span style={{ fontSize: "13px", color: COLORS.accentLight, letterSpacing: "0.1em", textTransform: "uppercase" }}>Spouse / Partner</span>
+            <button onClick={() => { setOpen(false); onChange(null); }} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "13px", fontFamily: "inherit" }}>Remove ×</button>
+          </div>
+          <div style={{ display: "grid", gap: "14px" }}>
+            {[
+              { key: "name", label: "Full Name", type: "text" },
+              { key: "dob", label: "Date of Birth", type: "date" },
+              { key: "email", label: "Email", type: "email" },
+              { key: "phone", label: "Phone", type: "tel" },
+
+            ].map(f => (
+              <div key={f.key}>
+                <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>{f.label}</label>
+                {f.type === "select" ? (
+                  <select value={(data || {})[f.key] || ""} onChange={(e) => update(f.key, e.target.value)} style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                    <option value="">— Select —</option>
+                    {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input type={f.type} value={(data || {})[f.key] || ""} onChange={(e) => update(f.key, e.target.value)}
+                    style={{ ...inputStyle, paddingRight: f.type === "date" ? "40px" : "12px" }}
+                    onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function ClientIncomeCardField({ value, onChange, formData, uploadedFiles, setUploadedFiles }) {
+      const data = value || {};
+      const update = (key, val) => onChange({ ...data, [key]: val });
+      const hasSpouse = formData.spousePanel && (formData.spousePanel.name || Object.keys(formData.spousePanel).length > 0);
+      const clientName = [formData.firstName, formData.lastName].filter(Boolean).join(" ") || "Client";
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "14px", padding: "10px 12px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      const fields = [
+        { key: "employer", label: "Employer / Business Name", type: "text" },
+        { key: "occupation", label: "Occupation / Title", type: "text" },
+        { key: "grossIncome", label: "Annual Gross Income ($)", type: "number" },
+        { key: "bonusIncome", label: "Annual Bonus / Commission ($)", type: "number" },
+        { key: "selfEmployedIncome", label: "Self-Employment / Business Income ($)", type: "number" },
+        { key: "rentalIncome", label: "Rental Income ($)", type: "number" },
+      ];
+
+      const inner = (
+        <div style={{ display: "grid", gap: "14px" }}>
+          {fields.map(f => (
+            <div key={f.key}>
+              <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>{f.label}</label>
+              <input type={f.type} value={data[f.key] || ""} onChange={(e) => update(f.key, e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+            </div>
+          ))}
+          <div>
+            <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>Pay Stub</label>
+            <FileUploadButton uploadId="file_paystub" hint="Attach most recent pay stub" uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+          </div>
+          <div>
+            <div style={{ fontSize: "11px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "8px" }}>Employer Stock Plans</div>
+            <StockPlanField value={data.stockPlans} onChange={(val) => update("stockPlans", val)} label="Stock Plans" />
+          </div>
+        </div>
+      );
+
+      if (!hasSpouse) {
+        return inner;
+      }
+
+      return (
+        <div style={{ padding: "20px", background: "#1e1e28", border: `1px solid ${COLORS.accent}44`, borderRadius: "10px" }}>
+          <div style={{ fontSize: "13px", color: COLORS.accentLight, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "16px" }}>{clientName}</div>
+          {inner}
+        </div>
+      );
+    }
+
+    function GoalListField({ value, onChange }) {
+      const rows = value && Array.isArray(value) ? value : [{ goal: "", priority: "High" }];
+
+      React.useEffect(() => {
+        if (!value || value.length === 0) onChange([{ goal: "", priority: "High" }]);
+      }, []);
+
+      const addRow = () => onChange([...rows, { goal: "", priority: "High" }]);
+      const updateRow = (i, key, val) => onChange(rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+      const removeRow = (i) => { if (rows.length === 1) return; onChange(rows.filter((_, idx) => idx !== i)); };
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "13px", padding: "8px 10px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      return (
+        <div>
+          {rows.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr 28px", gap: "8px", marginBottom: "6px" }}>
+              {["Goal", "Priority", ""].map((h, i) => (
+                <div key={i} style={{ fontSize: "10px", letterSpacing: "0.1em", color: COLORS.muted, textTransform: "uppercase", paddingLeft: "2px" }}>{h}</div>
+              ))}
+            </div>
+          )}
+          {rows.map((row, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "3fr 1fr 28px", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
+              <input type="text" placeholder={`Goal #${i + 1}`} value={row.goal} onChange={(e) => updateRow(i, "goal", e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)} />
+              <select value={row.priority} onChange={(e) => updateRow(i, "priority", e.target.value)} style={inputStyle}
+                onFocus={(e) => (e.target.style.borderColor = COLORS.accent)} onBlur={(e) => (e.target.style.borderColor = COLORS.border)}>
+                <option>High</option>
+                <option>Medium</option>
+                <option>Low</option>
+              </select>
+              <button onClick={() => removeRow(i)} disabled={rows.length === 1}
+                style={{ background: "transparent", border: "none", color: rows.length === 1 ? COLORS.border : COLORS.muted, cursor: rows.length === 1 ? "default" : "pointer", fontSize: "18px", padding: 0, lineHeight: 1 }}>×</button>
+            </div>
+          ))}
+          <button onClick={addRow} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "8px 14px", fontFamily: "inherit", transition: "border-color 0.2s, color 0.2s" }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Goal
+          </button>
+        </div>
+      );
+    }
+
+    function getMissingStatements(formData, uploadedFiles) {
+      const missing = [];
+      const hasFile = (id) => (uploadedFiles[id] || []).length > 0;
+
+      // Static fields
+      if (formData.mortgageBalance && !hasFile("file_mortgage")) missing.push({ label: "Mortgage Statement", uploadId: "file_mortgage" });
+      if (formData.heloc && !hasFile("file_heloc")) missing.push({ label: "HELOC Statement", uploadId: "file_heloc" });
+      if (formData.grossIncome && !hasFile("file_paystub")) missing.push({ label: "Pay Stub", uploadId: "file_paystub" });
+      if (formData.lifeDeathBenefit && !hasFile("file_lifeins")) missing.push({ label: "Life Insurance Policy", uploadId: "file_lifeins" });
+      if (!hasFile("file_taxreturn")) missing.push({ label: "Last Year Tax Return", uploadId: "file_taxreturn" });
+      if (formData.spouseIncomeBlock && !hasFile("file_spouse_paystub")) missing.push({ label: "Spouse/Partner Pay Stub", uploadId: "file_spouse_paystub" });
+
+      // Bank accounts
+      (formData.bankAccounts || []).forEach((a, i) => {
+        if (!hasFile(a.uploadId)) missing.push({ label: `Bank Statement — ${a.institution || a.type || "Account " + (i+1)}`, uploadId: a.uploadId });
+      });
+
+      // Student loans
+      (formData.studentLoans || []).forEach((l, i) => {
+        if (l.balance && !hasFile(l.uploadId)) missing.push({ label: `Student Loan — ${l.servicer || "Loan " + (i+1)}`, uploadId: l.uploadId });
+      });
+
+      // Auto loans
+      (formData.carLoans || []).forEach((l, i) => {
+        if (l.balance && !hasFile(l.uploadId)) missing.push({ label: `Auto Loan — ${l.name || "Loan " + (i+1)}`, uploadId: l.uploadId });
+      });
+
+      // Credit cards
+      (formData.creditCards || []).forEach((cc, i) => {
+        if (cc.balance && !hasFile(cc.uploadId)) missing.push({ label: `Credit Card — ${cc.name || "Card " + (i+1)}`, uploadId: cc.uploadId });
+      });
+
+      // Brokerage
+      (formData.brokerageAccounts || []).forEach((a, i) => {
+        if (a.balance && !hasFile(a.uploadId)) missing.push({ label: `Brokerage — ${a.institution || a.type || "Account " + (i+1)}`, uploadId: a.uploadId });
+      });
+
+      // Retirement
+      (formData.retirementAccounts || []).forEach((a, i) => {
+        if (a.balance && !hasFile(a.uploadId)) missing.push({ label: `Retirement — ${a.institution || a.type || "Account " + (i+1)}`, uploadId: a.uploadId });
+      });
+
+      return missing;
+    }
+
+    function DocumentVaultField({ uploadedFiles, setUploadedFiles, formData }) {
+      const missingStatements = getMissingStatements(formData || {}, uploadedFiles);
+
+      const handleMissingFile = (uploadId, e) => {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => setUploadedFiles(prev => ({ ...prev, [uploadId]: [{ name: file.name, data: ev.target.result, type: file.type, uploadId }] }));
+        reader.readAsDataURL(file); e.target.value = "";
+      };
+
+      // Map field-level upload keys to friendly labels
+      const FIELD_UPLOAD_LABELS = {
+        file_mortgage: "Mortgage Statement",
+        file_studentloan: "Student Loan Statement",
+        file_paystub: "Pay Stub",
+        file_taxreturn: "Tax Return",
+        file_lifeins: "Life Insurance Policy",
+        file_estate: "Estate Document",
+        file_bank: "Bank Statement",
+        file_brokerage: "Brokerage Statement",
+        file_heloc: "HELOC Statement",
+        file_spouse_paystub: "Spouse/Partner Pay Stub",
+      };
+
+      // Also collect dynamic bank account uploads
+      const bankAccounts = (formData && formData.bankAccounts) || [];
+      const bankUploadLabels = {};
+      bankAccounts.forEach(a => { if (a.uploadId) bankUploadLabels[a.uploadId] = `Bank Statement — ${a.institution || a.type || "Account"}`; });
+      const studentLoans = (formData && formData.studentLoans) || [];
+      studentLoans.forEach(l => { if (l.uploadId) bankUploadLabels[l.uploadId] = `Student Loan Statement — ${l.servicer || "Loan"}`; });
+      const autoLoans = (formData && formData.carLoans) || [];
+      autoLoans.forEach((l, idx) => { if (l.uploadId) bankUploadLabels[l.uploadId] = `Auto Loan Statement — ${l.name || "Loan " + (idx+1)}`; });
+      const creditCards = (formData && formData.creditCards) || [];
+      creditCards.forEach((c, idx) => { if (c.uploadId) bankUploadLabels[c.uploadId] = `Credit Card Statement — ${c.name || "Card " + (idx+1)}`; });
+      const brokerageAccounts = (formData && formData.brokerageAccounts) || [];
+      brokerageAccounts.forEach(a => { if (a.uploadId) bankUploadLabels[a.uploadId] = `Brokerage Statement — ${a.institution || a.type || "Account"}`; });
+      const retirementAccounts = (formData && formData.retirementAccounts) || [];
+      retirementAccounts.forEach(a => { if (a.uploadId) bankUploadLabels[a.uploadId] = `Retirement Statement — ${a.institution || a.type || "Account"}`; });
+      const allUploadLabels = { ...FIELD_UPLOAD_LABELS, ...bankUploadLabels };
+
+      // Collect all field-level uploads into a flat list
+      const fieldDocs = Object.entries(allUploadLabels).flatMap(([key, label]) =>
+        (uploadedFiles[key] || []).map((f, i) => ({ ...f, label, key, idx: i }))
+      );
+
+      const DOC_TYPES = [
+        "Tax Return", "Pay Stub", "W-2 / 1099", "Bank Statement", "Brokerage Statement",
+        "Retirement Account Statement", "Mortgage Statement", "Loan Statement",
+        "Insurance Policy", "Estate Document (Will/Trust/POA)", "Business Document",
+        "Social Security Statement", "Pension Statement", "Other"
+      ];
+
+      const vaultKey = "doc_vault";
+      const docs = uploadedFiles[vaultKey] || [];
+
+      const [newDoc, setNewDoc] = React.useState({ type: "", description: "", file: null });
+      const [adding, setAdding] = React.useState(false);
+
+      const handleFileSelect = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => setNewDoc(prev => ({ ...prev, file: { name: file.name, data: ev.target.result, type: file.type } }));
+        reader.readAsDataURL(file);
+        e.target.value = "";
+      };
+
+      const handleAdd = () => {
+        if (!newDoc.file) return;
+        const entry = { ...newDoc, id: Date.now() };
+        setUploadedFiles(prev => ({ ...prev, [vaultKey]: [...(prev[vaultKey] || []), entry] }));
+        setNewDoc({ type: "", description: "", file: null });
+        setAdding(false);
+      };
+
+      const removeDoc = (id) => setUploadedFiles(prev => ({
+        ...prev, [vaultKey]: (prev[vaultKey] || []).filter(d => d.id !== id)
+      }));
+
+      const inputStyle = {
+        background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px",
+        color: COLORS.text, fontSize: "14px", padding: "10px 12px", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box", width: "100%",
+      };
+
+      return (
+        <div>
+          {/* Missing Statements */}
+          {missingStatements.length > 0 && (
+            <div style={{ marginBottom: "24px", padding: "16px", background: "rgba(180,60,60,0.08)", border: "1px solid rgba(180,60,60,0.3)", borderRadius: "8px" }}>
+              <div style={{ fontSize: "11px", letterSpacing: "0.12em", color: "#e07070", textTransform: "uppercase", marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <span>⚠</span> Missing Statements
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {missingStatements.map((item, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "6px" }}>
+                    <span style={{ fontSize: "13px", color: COLORS.muted }}>{item.label}</span>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 12px", background: "#0f0f14", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "12px", fontFamily: "inherit" }}>
+                      <span>⊕</span> Upload
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => handleMissingFile(item.uploadId, e)} />
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {missingStatements.length === 0 && (
+            <div style={{ marginBottom: "20px", padding: "12px 16px", background: "rgba(74,158,107,0.08)", border: "1px solid rgba(74,158,107,0.3)", borderRadius: "8px", fontSize: "13px", color: COLORS.complete, display: "flex", alignItems: "center", gap: "8px" }}>
+              <span>✓</span> All expected statements have been uploaded.
+            </div>
+          )}
+
+          {/* Field-level uploads from other sections */}
+          {fieldDocs.length > 0 && (
+            <div style={{ marginBottom: "24px" }}>
+              <div style={{ fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "10px" }}>Attached in Other Sections</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {fieldDocs.map((doc, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px", opacity: 0.85 }}>
+                    <span style={{ fontSize: "18px" }}>📄</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "11px", color: COLORS.accent, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "2px" }}>{doc.label}</div>
+                      <div style={{ fontSize: "13px", color: COLORS.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
+                    </div>
+                    <button
+                      onClick={() => setUploadedFiles(prev => {
+                        const updated = [...(prev[doc.key] || [])];
+                        updated.splice(doc.idx, 1);
+                        return { ...prev, [doc.key]: updated };
+                      })}
+                      style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: 0 }}>×</button>
+                  </div>
+                ))}
+              </div>
+              {docs.length > 0 && <div style={{ height: "1px", background: COLORS.border, margin: "20px 0" }} />}
+            </div>
+          )}
+
+          {/* Vault docs added directly here */}
+          {docs.length > 0 && (
+            <div style={{ marginBottom: "20px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              {docs.map((doc) => (
+                <div key={doc.id} style={{ display: "flex", alignItems: "flex-start", gap: "12px", padding: "14px 16px", background: "#1e1e28", border: `1px solid ${COLORS.border}`, borderRadius: "8px" }}>
+                  <span style={{ fontSize: "20px", marginTop: "2px" }}>📄</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "12px", color: COLORS.accent, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "2px" }}>{doc.type || "Document"}</div>
+                    <div style={{ fontSize: "14px", color: COLORS.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.file.name}</div>
+                    {doc.description && <div style={{ fontSize: "12px", color: COLORS.muted, marginTop: "2px" }}>{doc.description}</div>}
+                  </div>
+                  <button onClick={() => removeDoc(doc.id)} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "18px", padding: 0, flexShrink: 0 }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add new doc form */}
+          {adding ? (
+            <div style={{ padding: "20px", background: "#1e1e28", border: `1px solid ${COLORS.accent}44`, borderRadius: "10px", display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>Document Type</label>
+                <select value={newDoc.type} onChange={(e) => setNewDoc(p => ({ ...p, type: e.target.value }))} style={inputStyle}>
+                  <option value="">— Select type —</option>
+                  {DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>Description (optional)</label>
+                <input type="text" placeholder="e.g. 2024 Federal Tax Return" value={newDoc.description} onChange={(e) => setNewDoc(p => ({ ...p, description: e.target.value }))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "6px" }}>File</label>
+                {newDoc.file ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#16161d", border: `1px solid ${COLORS.complete}44`, borderRadius: "6px" }}>
+                    <span>📄</span>
+                    <span style={{ flex: 1, fontSize: "13px", color: COLORS.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{newDoc.file.name}</span>
+                    <button onClick={() => setNewDoc(p => ({ ...p, file: null }))} style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px", padding: 0 }}>×</button>
+                  </div>
+                ) : (
+                  <label style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", background: "#16161d", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", cursor: "pointer", color: COLORS.muted, fontSize: "13px", fontFamily: "inherit" }}>
+                    <span style={{ fontSize: "16px" }}>⊕</span> Choose file
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.csv" style={{ display: "none" }} onChange={handleFileSelect} />
+                  </label>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button onClick={handleAdd} disabled={!newDoc.file} style={{ padding: "10px 24px", background: newDoc.file ? COLORS.accent : COLORS.border, color: newDoc.file ? "#0f0f14" : COLORS.muted, border: "none", borderRadius: "6px", fontSize: "14px", fontWeight: 700, cursor: newDoc.file ? "pointer" : "default", fontFamily: "inherit" }}>Add Document</button>
+                <button onClick={() => { setAdding(false); setNewDoc({ type: "", description: "", file: null }); }} style={{ padding: "10px 20px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "14px", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setAdding(true)} style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px dashed ${COLORS.border}`, borderRadius: "6px", color: COLORS.muted, cursor: "pointer", fontSize: "13px", padding: "10px 16px", fontFamily: "inherit", transition: "all 0.2s" }}
+              onMouseOver={(e) => { e.currentTarget.style.borderColor = COLORS.accent; e.currentTarget.style.color = COLORS.accentLight; }}
+              onMouseOut={(e) => { e.currentTarget.style.borderColor = COLORS.border; e.currentTarget.style.color = COLORS.muted; }}>
+              <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add Document
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    function SectionNav({ sections, current, completed, onSelect }) {
+  return (
+    <div style={{ display: "flex", overflowX: "auto", gap: "0", borderBottom: `1px solid ${COLORS.border}`, paddingBottom: "0" }}>
+      {sections.map((s, i) => {
+        const isCurrent = current === i;
+        const isDone = completed.has(i);
+        return (
+          <button
+            key={s.id}
+            onClick={() => onSelect(i)}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "4px",
+              padding: "12px 16px",
+              background: "transparent",
+              border: "none",
+              borderBottom: isCurrent ? `2px solid ${COLORS.accent}` : "2px solid transparent",
+              color: isCurrent ? COLORS.accentLight : isDone ? COLORS.complete : COLORS.muted,
+              fontSize: "11px",
+              cursor: "pointer",
+              textAlign: "center",
+              fontFamily: "inherit",
+              transition: "all 0.15s",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+              marginBottom: "-1px",
+            }}
+          >
+            <span style={{ fontSize: "18px" }}>{isDone ? "✓" : s.icon}</span>
+            <span style={{ fontWeight: isCurrent ? 600 : 400, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: "10px" }}>{s.title}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+
+
+
+
+function App() {
+  const [currentSection, setCurrentSection] = useState(0);
+  const [formData, setFormData] = useState({});
+  const [completed, setCompleted] = useState(new Set());
+  const [submitted, setSubmitted] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState({});
+  const [resumePrompt, setResumePrompt] = useState(null);
+
+  React.useEffect(() => {
+    loadSessionFromDB().then(saved => {
+      if (saved && saved.formData && Object.keys(saved.formData).length > 0) {
+        const clientName = [saved.formData.firstName, saved.formData.lastName].filter(Boolean).join(" ") || "Unknown Client";
+        setResumePrompt({ ...saved, clientName });
+      }
+    });
+  }, []);
+
+  const handleChange = (id, value) => {
+    setFormData((prev) => ({ ...prev, [id]: value }));
+  };
+
+  const handleNext = () => {
+    const newCompleted = new Set([...completed, currentSection]);
+    setCompleted(newCompleted);
+    if (currentSection < SECTIONS.length - 1) {
+      setCurrentSection(currentSection + 1);
+      saveSessionToDB({ formData, completed: Array.from(newCompleted), uploadedFiles, currentSection: currentSection + 1 });
+    } else {
+      setSubmitted(true);
+    }
+  };
+
+  const handleBack = () => {
+    if (currentSection > 0) setCurrentSection(currentSection - 1);
+  };
+
+  const section = SECTIONS[currentSection];
+  const progress = Math.round((completed.size / SECTIONS.length) * 100);
+
+  if (submitted) {
+    return (
+      <div style={{ minHeight: "100vh", background: COLORS.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Cormorant Garamond', Georgia, serif", color: COLORS.text }}>
+        <div style={{ textAlign: "center", maxWidth: "480px", padding: "48px" }}>
+          <div style={{ fontSize: "64px", marginBottom: "24px" }}>◈</div>
+          <h1 style={{ fontSize: "32px", fontWeight: 300, color: COLORS.accentLight, marginBottom: "12px", letterSpacing: "0.05em" }}>Intake Complete</h1>
+          <p style={{ color: COLORS.muted, fontSize: "16px", marginBottom: "40px", lineHeight: 1.6 }}>
+            All sections have been filled out for{" "}
+            <strong style={{ color: COLORS.text }}>{[formData.firstName, formData.lastName].filter(Boolean).join(" ") || "this client"}</strong>.
+            Export the data to CSV to import into your planning software.
+          </p>
+          <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+            <button onClick={() => exportZip(formData, uploadedFiles)}
+              style={{ padding: "14px 28px", background: COLORS.accent, color: "#0f0f14", border: "none", borderRadius: "8px", fontSize: "15px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}
+            >
+              ⬇ Export ZIP
+            </button>
+            <button onClick={() => exportExcel(formData, uploadedFiles)}
+              style={{ padding: "14px 28px", background: "transparent", color: COLORS.accentLight, border: `1px solid ${COLORS.accent}44`, borderRadius: "8px", fontSize: "15px", cursor: "pointer", fontFamily: "inherit" }}
+            >
+              📊 Export Excel
+            </button>
+            <button
+              onClick={() => { setSubmitted(false); setCurrentSection(0); }}
+              style={{ padding: "14px 28px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "8px", fontSize: "15px", cursor: "pointer", fontFamily: "inherit" }}
+            >
+              Review
+            </button>
+            <button
+              onClick={() => { clearSessionFromDB(); setFormData({}); setCompleted(new Set()); setUploadedFiles({}); setSubmitted(false); setCurrentSection(0); }}
+              style={{ padding: "14px 28px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "8px", fontSize: "15px", cursor: "pointer", fontFamily: "inherit" }}
+            >
+              New Client
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: COLORS.bg, fontFamily: "'Cormorant Garamond', Georgia, serif", color: COLORS.text }}>
+      {resumePrompt && (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Cormorant Garamond', Georgia, serif" }}>
+        <div style={{ background: "#16161d", border: `1px solid ${COLORS.border}`, borderRadius: "12px", padding: "40px", maxWidth: "420px", width: "90%", textAlign: "center" }}>
+          <div style={{ fontSize: "40px", marginBottom: "16px" }}>◈</div>
+          <h2 style={{ fontSize: "24px", fontWeight: 300, color: COLORS.accentLight, marginBottom: "8px" }}>Resume Session?</h2>
+          <p style={{ color: COLORS.muted, fontSize: "14px", marginBottom: "4px" }}>Saved session found for</p>
+          <p style={{ color: COLORS.text, fontSize: "20px", fontWeight: 600, marginBottom: "4px" }}>{resumePrompt.clientName}</p>
+          <p style={{ color: COLORS.muted, fontSize: "11px", letterSpacing: "0.05em", marginBottom: "32px" }}>Last saved: {new Date(resumePrompt.savedAt).toLocaleString()}</p>
+          <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+            <button onClick={() => { setFormData(resumePrompt.formData); setCompleted(new Set(resumePrompt.completed||[])); setUploadedFiles(resumePrompt.uploadedFiles||{}); setCurrentSection(resumePrompt.currentSection||0); setResumePrompt(null); }} style={{ padding: "12px 28px", background: COLORS.accent, color: "#0f0f14", border: "none", borderRadius: "8px", fontSize: "15px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Resume</button>
+            <button onClick={() => { clearSessionFromDB(); setResumePrompt(null); }} style={{ padding: "12px 24px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "8px", fontSize: "15px", cursor: "pointer", fontFamily: "inherit" }}>Start Fresh</button>
+          </div>
+        </div>
+      </div>
+    )}
+      {/* Header */}
+      <div style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "20px 40px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: "11px", letterSpacing: "0.2em", color: COLORS.muted, textTransform: "uppercase", marginBottom: "4px" }}>Financial Planning Group</div>
+          <div style={{ fontSize: "20px", color: COLORS.accentLight, fontWeight: 300, letterSpacing: "0.05em" }}>Client Intake Form</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              onClick={() => exportSession(formData, completed)}
+              style={{ padding: "7px 14px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}
+            >↓ Save</button>
+            <label style={{ padding: "7px 14px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}>
+              ↑ Load
+              <input type="file" accept=".json" style={{ display: "none" }} onChange={(e) => {
+                if (e.target.files[0]) importSession(e.target.files[0], (data, comp) => { setFormData(data); setCompleted(comp); setSubmitted(false); });
+                e.target.value = "";
+              }} />
+            </label>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: "11px", color: COLORS.muted, letterSpacing: "0.1em", marginBottom: "6px" }}>{progress}% COMPLETE</div>
+            <div style={{ width: "140px", height: "3px", background: COLORS.border, borderRadius: "2px" }}>
+              <div style={{ height: "100%", width: `${progress}%`, background: COLORS.accent, borderRadius: "2px", transition: "width 0.4s ease" }} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Section Nav */}
+      <div style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "0 40px" }}>
+        <SectionNav sections={SECTIONS} current={currentSection} completed={completed} onSelect={setCurrentSection} />
+      </div>
+
+      {/* Body */}
+      <div style={{ padding: "40px", maxWidth: "680px", margin: "0 auto" }}>
+        {/* Form */}
+        <div style={{ flex: 1 }}>
+          <div style={{ marginBottom: "32px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
+              <span style={{ fontSize: "28px", color: COLORS.accent }}>{section.icon}</span>
+              <h2 style={{ fontSize: "28px", fontWeight: 300, letterSpacing: "0.05em", margin: 0 }}>{section.title}</h2>
+            </div>
+            <div style={{ height: "1px", background: `linear-gradient(to right, ${COLORS.accent}44, transparent)` }} />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "20px" }}>
+            {section.fields.filter(field => !field.showIfSpouse || (formData.spousePanel && formData.spousePanel.name)).map((field) => (
+              <div key={field.id}>
+                {field.type !== "mortgagebreakdown" && field.type !== "spouseincomeblock" && field.type !== "stockplanfield" && field.type !== "clientincomecard" && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                    <label style={{ fontSize: "11px", letterSpacing: "0.12em", color: COLORS.muted, textTransform: "uppercase" }}>
+                      {field.label}
+                    </label>
+                    {field.zillowLink && (() => {
+                      const addr = [formData.address, formData.city, formData.state, formData.zip].filter(Boolean).join(", ");
+                      const zillowUrl = addr
+                        ? `https://www.zillow.com/homes/${encodeURIComponent(addr)}_rb/`
+                        : "https://www.zillow.com";
+                      return (
+                        <a href={zillowUrl} target="_blank" rel="noopener noreferrer"
+                          title={addr ? `Search Zillow for: ${addr}` : "Open Zillow"}
+                          style={{ fontSize: "11px", color: COLORS.accent, textDecoration: "none", letterSpacing: "0.05em", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                          onMouseOver={(e) => e.currentTarget.style.textDecoration = "underline"}
+                          onMouseOut={(e) => e.currentTarget.style.textDecoration = "none"}>
+                          🏠 {addr ? "Look up this address on Zillow ↗" : "Look up on Zillow ↗"}
+                        </a>
+                      );
+                    })()}
+                  </div>
+                )}
+                {field.type === "multibrokerageaccount" ? (
+                  <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={BROKERAGE_TYPES} addLabel="Add Brokerage Account" uploadPrefix="file_brokerage" spousePanel={formData.spousePanel} clientName={[formData.firstName, formData.lastName].filter(Boolean).join(" ")} />
+                ) : field.type === "multiretirementaccount" ? (
+                  <MultiAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} accountTypes={RETIREMENT_TYPES} addLabel="Add Retirement Account" uploadPrefix="file_retirement" showCheckboxes={true} spousePanel={formData.spousePanel} clientName={[formData.firstName, formData.lastName].filter(Boolean).join(" ")} />
+                ) : field.type === "multistudentloan" ? (
+                  <MultiStudentLoanField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                ) : field.type === "clientincomecard" ? (
+                  <ClientIncomeCardField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} formData={formData} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                ) : field.type === "goallist" ? (
+                  <GoalListField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
+                ) : field.type === "multirealestateaccount" ? (
+                  <MultiRealEstateField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} formData={formData} />
+                ) : field.type === "multibankaccount" ? (
+                  <MultiBankAccountField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} spousePanel={formData.spousePanel} clientName={[formData.firstName, formData.lastName].filter(Boolean).join(" ")} />
+                ) : field.type === "dependentlist" ? (
+                  <DependentListField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
+                ) : field.type === "stockplanfield" ? (
+                  <StockPlanField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} label={field.label} />
+                ) : field.type === "spouseincomeblock" ? (
+                  <SpouseIncomeBlockField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} spouseName={formData.spousePanel && formData.spousePanel.name} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                ) : field.type === "spousepanel" ? (
+                  <SpousePanelField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
+                ) : field.type === "documentvault" ? (
+                  <DocumentVaultField uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} formData={formData} />
+                ) : field.type === "fileonly" ? (
+                  <FileUploadButton uploadId={field.uploadId} hint={field.uploadHint} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                ) : field.type === "multiasset" ? (
+                  <MultiAssetField
+                    value={formData[field.id]}
+                    onChange={(val) => handleChange(field.id, val)}
+                  />
+                ) : field.type === "expensegroup" ? (
+                  <ExpenseGroupField
+                    field={field}
+                    value={formData[field.id] || field.defaultRows}
+                    onChange={(val) => handleChange(field.id, val)}
+                  />
+                ) : field.type === "multidebt" ? (
+                  <MultiDebtField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} />
+                ) : field.type === "multiloan" ? (
+                  <MultiLoanField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                ) : field.type === "multicredit" ? (
+                  <MultiCreditField value={formData[field.id]} onChange={(val) => handleChange(field.id, val)} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+                ) : field.type === "mortgagebreakdown" ? (
+                  <MortgageBreakdownField
+                    value={formData[field.id]}
+                    onChange={(val) => handleChange(field.id, val)}
+                  />
+                ) : field.type === "multiincome" ? (
+                  <MultiIncomeField
+                    value={formData[field.id]}
+                    onChange={(val) => handleChange(field.id, val)}
+                  />
+                ) : (
+                  <>
+                    <Field field={field} value={formData[field.id]} onChange={handleChange} />
+                    {field.uploadHint && <FileUploadButton uploadId={field.uploadId} hint={field.uploadHint} uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />}
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Navigation */}
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "40px", paddingTop: "24px", borderTop: `1px solid ${COLORS.border}` }}>
+            <button
+              onClick={handleBack}
+              disabled={currentSection === 0}
+              style={{ padding: "12px 24px", background: "transparent", color: currentSection === 0 ? COLORS.border : COLORS.muted, border: `1px solid ${currentSection === 0 ? COLORS.border : COLORS.border}`, borderRadius: "6px", fontSize: "14px", cursor: currentSection === 0 ? "default" : "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}
+            >
+              ← Back
+            </button>
+            <div style={{ display: "flex", gap: "12px" }}>
+              <button
+  onClick={() => exportExcel(formData, uploadedFiles)}
+                style={{ padding: "12px 20px", background: "transparent", color: COLORS.muted, border: `1px solid ${COLORS.border}`, borderRadius: "6px", fontSize: "13px", cursor: "pointer", fontFamily: "inherit" }}
+              >
+                📊 Export Excel
+              </button>
+              <button
+                onClick={handleNext}
+                style={{ padding: "12px 28px", background: COLORS.accent, color: "#0f0f14", border: "none", borderRadius: "6px", fontSize: "14px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em" }}
+              >
+                {currentSection === SECTIONS.length - 1 ? "Complete Intake" : "Next →"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
